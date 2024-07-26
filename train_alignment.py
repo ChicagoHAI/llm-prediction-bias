@@ -13,14 +13,14 @@ from transformers import get_linear_schedule_with_warmup, \
 LlamaForCausalLM, LlamaTokenizer, LlamaConfig
 
 import sys
-sys.path.append('..')
+sys.path.append('../pyvene/')
 import pyvene as pv
 from pyvene.models.intervenable_base import IntervenableModel
 from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
 
 
 def create_llama(name="sharpbai/alpaca-7b-merged", 
-                cache_dir="../../.huggingface_cache"):
+                cache_dir="../.huggingface_cache"):
     config = LlamaConfig.from_pretrained(name, cache_dir=cache_dir)
     tokenizer = LlamaTokenizer.from_pretrained(name, 
                                             cache_dir=cache_dir, 

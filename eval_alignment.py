@@ -11,7 +11,7 @@ from datasets import load_dataset, Dataset
 from transformers import LlamaForCausalLM, LlamaTokenizer, LlamaConfig
 
 import sys
-sys.path.append('..')
+sys.path.append('../pyvene/')
 import pyvene as pv
 from pyvene.models.intervenable_base import IntervenableModel
 from pyvene.models.configuration_intervenable_model import IntervenableConfig
@@ -19,7 +19,7 @@ from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
 
 
 def create_llama(name="sharpbai/alpaca-7b-merged", 
-                cache_dir="../../.huggingface_cache"):
+                cache_dir="../.huggingface_cache"):
     config = LlamaConfig.from_pretrained(name, cache_dir=cache_dir)
     tokenizer = LlamaTokenizer.from_pretrained(name, 
                                             cache_dir=cache_dir, 
