@@ -55,6 +55,11 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", help="""Path to the directory containing
                         the dataset files.""")
 
+    parser.add_argument("--collect_layer", 
+    help="The layer of the source activations.", type=int)
+    parser.add_argument("--collect_pos", 
+    help="The token position of the source activations.", type=int)
+
     parser.add_argument("--horizontal_position", 
                         help="""Where the relevant information 
                             is provided in the prompt. This is
@@ -87,6 +92,9 @@ if __name__ == "__main__":
     alignment_path = args.alignment_path
     ds_path = args.dataset_path
 
+    collect_layer = args.collect_layer
+    collect_pos = args.collect_pos
+
     h_pos = args.horizontal_position
     h_range = args.horizontal_range
     h_step = args.horizontal_step
@@ -103,9 +111,6 @@ if __name__ == "__main__":
     _ = llama.eval() # always no grad on the model
 
     # CollectIntervention for getting source activations
-    collect_layer = 2
-    collect_pos = 17
-
     config_collect = pv.IntervenableConfig([
         {
             "layer": collect_layer,
@@ -167,7 +172,7 @@ if __name__ == "__main__":
                         source_tokens,                                 
                         unit_locations={"sources->base": collect_pos},                                       
                     )
-                    # intervenable_out is ((activations, _), _)
+                    # intervenable_out is ((_, activations), _)
                     src_activations = intervenable_out[0][1]
                     src_activations = torch.concatenate(src_activations).unsqueeze(1)
 
