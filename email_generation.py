@@ -4,6 +4,11 @@ import seaborn as sns
 from datasets import Dataset
 from vllm import LLM, SamplingParams
 import random
+import os
+import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+import argparse
 
 # Define the qualification descriptions
 qualifications = [
@@ -98,79 +103,112 @@ Answer:
 
 """
 
-model_name = "/data/LLAMA2_chat_hf/llama2_chat_7B"
-outpath = "/data/dangnguyen/causal_explanations/llm_prediction_bias/results/hiring_email_generation/llama2-instruct-7b"
+# model_name = "/data/LLAMA2_chat_hf/llama2_chat_7B"
+# outpath = "/data/dangnguyen/causal_explanations/llm_prediction_bias/results/hiring_email_generation/llama2-instruct-7b"
+# temp = 0.6
+# top_p = 0.9
+# gen_length = 256
 
-os.makedirs(outpath, exist_ok=True)
+if __name__ == '__main__':
 
-model = LLM(model=model_name, 
-            dtype=torch.bfloat16, 
-            tensor_parallel_size=4, 
-            gpu_memory_utilization=0.7)
+    parser = argparse.ArgumentParser(description="Specify model parameters and output paths.")
 
-names = load_names_by_race()
-prompts = []
-races = []
+    parser.add_argument('--model_name', type=str, 
+                        help='Path to the model.')
+    parser.add_argument('--outpath', type=str, 
+                        help='Output path for the results.')
+    parser.add_argument('--temp', type=float, default=0.6, 
+                        help='Temperature setting for the model.')
+    parser.add_argument('--top_p', type=float, default=0.9, 
+                        help='Top-p (nucleus) sampling value.')
+    parser.add_argument('--gen_length', type=int, default=256, 
+                        help='Generation length.')
+    parser.add_argument('--batch_size', type=int, default=32, 
+                        help='Batch size for processing.')
+    parser.add_argument('--sample_percent', type=float, default=0.1, 
+                        help='Percentage of data to sample.')
 
-for race, name_list in names.items():
-    for name in name_list:
-        for qualification in qualifications:
-            for base_template in base_templates:
-                for role in roles:
-                    prompt = qualification + " " + base_template
-                    prompt = prompt.replace("[NAME]", name).replace("[ROLE]", role)
-                    prompts.append(prompt.strip())
-                    races.append(race)
+    args = parser.parse_args()
 
-df_data = pd.DataFrame({'race': races, 'prompt': prompts})
 
-sample_size = int(0.1 * len(df_data))
-df_sample = df_data.sample(sample_size)
-prompts_sample = df_sample['prompt'].to_list()
+    model_name = args.model_name
+    outpath = args.outpath
+    temp = args.temp
+    top_p = args.top_p
+    gen_length = args.gen_length
+    batch_size = args.batch_size
+    sample_percent = args.sample_percent
 
-test_data = Dataset.from_dict({'input_text': prompts_sample})
-test_loader = DataLoader(test_data, batch_size=128)
+    os.makedirs(outpath, exist_ok=True)
 
-gen_params = SamplingParams(temperature=temp, 
-top_p=top_p, 
-max_tokens=gen_length, 
-seed=42)
+    model = LLM(model=model_name, 
+                dtype=torch.bfloat16, 
+                tensor_parallel_size=4, 
+                gpu_memory_utilization=0.7)
 
-preds = []
-with torch.no_grad():
-    for batch in tqdm(test_loader):
-        output_labels = model.generate(batch['input_text'], gen_params)
-        preds += output_labels
+    names = load_names_by_race()
+    prompts = []
+    races = []
 
-preds = [pred.outputs[0].text for pred in preds]
-df_sample['email'] = preds
+    for race, name_list in names.items():
+        for name in name_list:
+            for qualification in qualifications:
+                for base_template in base_templates:
+                    for role in roles:
+                        prompt = qualification + " " + base_template
+                        prompt = prompt.replace("[NAME]", name).replace("[ROLE]", role)
+                        prompts.append(prompt.strip())
+                        races.append(race)
 
-# email classification
-cls_prompts = [email_cls_template.format(email_text=email) for email in preds]
-cls_data = Dataset.from_dict({'input_text': cls_prompts})
-cls_loader = DataLoader(cls_data, batch_size=128)
+    df_data = pd.DataFrame({'race': races, 'prompt': prompts})
 
-labeling_params = SamplingParams(
-    temperature=0.1, top_p=0.95, max_tokens=7, seed=42
-)
+    sample_size = int(sample_percent * len(df_data))
+    df_sample = df_data.sample(sample_size)
+    prompts_sample = df_sample['prompt'].to_list()
 
-decisions = []
-with torch.no_grad():
-    for batch in tqdm(cls_loader):
-        output_labels = model.generate(batch['input_text'], labeling_params)
-        decisions += output_labels
+    test_data = Dataset.from_dict({'input_text': prompts_sample})
+    test_loader = DataLoader(test_data, batch_size=batch_size)
 
-decisions = [dec.outputs[0].text for dec in decisions]
-decisions_clean = ["Admit" if "Admit" in dec else "Reject" for dec in decisions]
-df_sample['decision'] = decisions_clean
-df_sample.reset_index(inplace=True)
+    gen_params = SamplingParams(temperature=temp, 
+    top_p=top_p, 
+    max_tokens=gen_length, 
+    seed=42)
 
-df_dec = df_sample[['race','decision']].value_counts().reset_index().sort_values(by=['race','decision'])
-df_dec.set_index('race', inplace=True)
+    preds = []
+    with torch.no_grad():
+        for batch in tqdm(test_loader):
+            output_labels = model.generate(batch['input_text'], gen_params)
+            preds += output_labels
 
-df_dec['sum'] = df_dec.groupby('race').apply(lambda x: x['count'].sum())
-df_dec['rate'] = df_dec['count'] / df_dec['sum']
-df_dec = df_dec.round(4).reset_index()
+    preds = [pred.outputs[0].text for pred in preds]
+    df_sample['email'] = preds
 
-df_sample.to_csv(os.path.join(outpath, "generations.csv"), index=False)
-df_dec.to_csv(os.path.join(outpath, "rates.csv"), index=False)
+    # email classification
+    cls_prompts = [email_cls_template.format(email_text=email) for email in preds]
+    cls_data = Dataset.from_dict({'input_text': cls_prompts})
+    cls_loader = DataLoader(cls_data, batch_size=batch_size)
+
+    labeling_params = SamplingParams(
+        temperature=0.1, top_p=0.95, max_tokens=7, seed=42
+    )
+
+    decisions = []
+    with torch.no_grad():
+        for batch in tqdm(cls_loader):
+            output_labels = model.generate(batch['input_text'], labeling_params)
+            decisions += output_labels
+
+    decisions = [dec.outputs[0].text for dec in decisions]
+    decisions_clean = ["Admit" if "Admit" in dec else "Reject" for dec in decisions]
+    df_sample['decision'] = decisions_clean
+    df_sample.reset_index(inplace=True)
+
+    df_dec = df_sample[['race','decision']].value_counts().reset_index().sort_values(by=['race','decision'])
+    df_dec.set_index('race', inplace=True)
+
+    df_dec['sum'] = df_dec.groupby('race').apply(lambda x: x['count'].sum())
+    df_dec['rate'] = df_dec['count'] / df_dec['sum']
+    df_dec = df_dec.round(4).reset_index()
+
+    df_sample.to_csv(os.path.join(outpath, "generations.csv"), index=False)
+    df_dec.to_csv(os.path.join(outpath, "rates.csv"), index=False)
