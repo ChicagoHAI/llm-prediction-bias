@@ -123,8 +123,8 @@ def sample_one(settings, custom_stats=None):
             candidate['pronoun'] = 'she'
             candidate['pronoun_pos'] = 'her'
         
-    if 'num_pres' in candidate.keys():
-        candidate['num_pres'] = random.choice(np.arange(candidate['num_ecs']))
+    # if 'num_pres' in candidate.keys():
+    #     candidate['num_pres'] = random.choice(np.arange(candidate['num_ecs']))
         
     return candidate
 
@@ -601,7 +601,7 @@ def format_prompt(template, candidate,
             gpa = candidate['gpa'],
             sat = candidate['sat'],
             num_ecs = candidate['num_ecs'],
-            num_pres = candidate['num_pres'],
+            # num_pres = candidate['num_pres'],
             letters_quality = candidate['letters_quality'],
             topic = candidate['topic']
         )
