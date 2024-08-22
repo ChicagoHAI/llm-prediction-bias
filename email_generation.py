@@ -103,12 +103,6 @@ Answer:
 
 """
 
-# model_name = "/data/LLAMA2_chat_hf/llama2_chat_7B"
-# outpath = "/data/dangnguyen/causal_explanations/llm_prediction_bias/results/hiring_email_generation/llama2-instruct-7b"
-# temp = 0.6
-# top_p = 0.9
-# gen_length = 256
-
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Specify model parameters and output paths.")
@@ -166,6 +160,8 @@ if __name__ == '__main__':
     df_sample = df_data.sample(sample_size)
     prompts_sample = df_sample['prompt'].to_list()
 
+    print(f"Sample size: {len(prompts_sample)}")
+
     test_data = Dataset.from_dict({'input_text': prompts_sample})
     test_loader = DataLoader(test_data, batch_size=batch_size)
 
@@ -175,10 +171,9 @@ if __name__ == '__main__':
     seed=42)
 
     preds = []
-    with torch.no_grad():
-        for batch in tqdm(test_loader):
-            output_labels = model.generate(batch['input_text'], gen_params)
-            preds += output_labels
+    for batch in tqdm(test_loader):
+        output_labels = model.generate(batch['input_text'], gen_params)
+        preds += output_labels
 
     preds = [pred.outputs[0].text for pred in preds]
     df_sample['email'] = preds
@@ -193,10 +188,9 @@ if __name__ == '__main__':
     )
 
     decisions = []
-    with torch.no_grad():
-        for batch in tqdm(cls_loader):
-            output_labels = model.generate(batch['input_text'], labeling_params)
-            decisions += output_labels
+    for batch in tqdm(cls_loader):
+        output_labels = model.generate(batch['input_text'], labeling_params)
+        decisions += output_labels
 
     decisions = [dec.outputs[0].text for dec in decisions]
     decisions_clean = ["Admit" if "Admit" in dec else "Reject" for dec in decisions]
