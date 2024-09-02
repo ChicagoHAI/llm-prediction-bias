@@ -38,7 +38,7 @@ Answer:
 # random_seed = 42
 # patch_layers = range(2, 4) # specify a start and end point in the args
 # patch_tokens: Literal["naive", "precise", "random"] = "precise"
-# concept_dir: Literal["naive", "aligned", "control"] = "naive"
+# concept_subspace: Literal["naive", "aligned", "control"] = "naive"
 # intervention_strength = 1.4
 
 # base_task_path = './llm_prediction_bias/datasets/admissions_short_race'
@@ -55,6 +55,7 @@ def parse_args():
 
     # Integer arguments
     parser.add_argument('--bs', type=int, default=64, help='Batch size')
+    parser.add_argument('--dataset_size', type=int, default=1600, help='Size of the sampled dataset for email generation')
     parser.add_argument('--random_seed', type=int, default=42, help='Random seed')
     parser.add_argument('--patch_start', type=int, default=2, help='Start of patch layers range')
     parser.add_argument('--patch_end', type=int, default=4, help='End of patch layers range')
@@ -66,7 +67,7 @@ def parse_args():
 
     # String arguments
     parser.add_argument('--patch_tokens', type=str, choices=["naive", "precise", "random"], default="precise", help='Type of patch tokens')
-    parser.add_argument('--concept_dir', type=str, choices=["naive", "aligned", "control"], default="naive", help='Concept direction for intervention')
+    parser.add_argument('--concept_subspace', type=str, choices=["naive", "aligned", "control"], default="naive", help='Concept direction for intervention')
 
     # Paths
     parser.add_argument('--base_task_path', type=str, 
@@ -78,7 +79,7 @@ def parse_args():
     parser.add_argument("--save_path", default="./", help="Path to the save directory")
 
     parser.add_argument('--model_name', type=str, 
-                        default='/data/LLAMA/sharpbai-alpaca-7b-merged', help='Name or path of the model')
+                        default='sharpbai/alpaca-7b-merged', help='Name or path of the model')
 
     args = parser.parse_args()
     return args
@@ -90,7 +91,7 @@ bs = args.bs
 random_seed = args.random_seed
 patch_layers = range(args.patch_start, args.patch_end)
 patch_tokens = args.patch_tokens
-concept_dir = args.concept_dir
+concept_subspace = args.concept_subspace
 intervention_strength = args.intervention_strength
 
 base_task_path = args.base_task_path
@@ -208,7 +209,8 @@ neg_mean = neg_activations.mean(dim=0)
 pos_mean = torch.mean(pos_activations, dim=0)
 
 
-df_email = pd.read_csv(email_path).sample(1500, random_state=random_seed)
+df_email = pd.read_csv(email_path).sample(args.dataset_size, 
+                                          random_state=random_seed)
 ds_email = Dataset.from_pandas(df_email[['race','prompt']])
 ds_email = ds_email.remove_columns("__index_level_0__")
 
@@ -236,15 +238,15 @@ control_mean_diff = intervention(
     torch.zeros(mean_diff.shape, device=device)
 )
 
-if concept_dir == 'naive':
+if concept_subspace == 'naive':
     final_mean_diff = mean_diff
-elif concept_dir == 'aligned':
+elif concept_subspace == 'aligned':
     final_mean_diff = transformed_mean_diff
-elif concept_dir == 'control':
+elif concept_subspace == 'control':
     final_mean_diff = control_mean_diff
 else:
     raise Exception(
-        "concept_dir must be one of ['naive', 'aligned', 'control']"
+        "concept_subspace must be one of ['naive', 'aligned', 'control']"
     )
 weighted_mean_diff = intervention_strength * final_mean_diff
 
@@ -375,10 +377,10 @@ df_ctf_decisions['ctf_rate'] = df_ctf_decisions['count'] / df_ctf_decisions['sum
 df_ctf_decisions = df_ctf_decisions.round(4).reset_index()
 
 df_decisions = pd.concat([df_base_decisions, 
-                          df_ctf_decisions[['ctf_rate']]], dim=1)
+                          df_ctf_decisions[['ctf_rate']]], axis=1)
 
 df_decisions.drop(columns=['count'], inplace=True)
 df_decisions.columns = ['race', 'decision', 'total', 'base_rate', 'ctf_rate']
 
-df_email.to_csv(f"{save_path}/emails.csv", index=False)
-df_decisions.to_csv(f"{save_path}/rates.csv", index=False)
+df_email.to_csv(os.path.join(save_path, "emails.csv"), index=False)
+df_decisions.to_csv(os.path.join(save_path, "rates.csv"), index=False)

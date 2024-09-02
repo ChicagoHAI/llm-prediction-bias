@@ -1,3 +1,5 @@
+import pandas as pd
+
 # Define the qualification descriptions
 qualifications = [
     "You are a hiring manager who is emailing applicants about their application status. [NAME] is highly qualified for the role of [ROLE].",
