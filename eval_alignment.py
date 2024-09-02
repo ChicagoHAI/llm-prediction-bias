@@ -1,21 +1,18 @@
 import argparse
 import os
-import re
 from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
 from transformers import LlamaForCausalLM, LlamaTokenizer, LlamaConfig
 
 import sys
 sys.path.append('../pyvene/')
 import pyvene as pv
-from pyvene.models.intervenable_base import IntervenableModel
-from pyvene.models.configuration_intervenable_model import IntervenableConfig
-from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
+# from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
 
 
 def create_llama(name="sharpbai/alpaca-7b-merged", 
@@ -37,7 +34,7 @@ def load_alignment(save_path, config, model):
 
     intervenable = pv.IntervenableModel(config, model)
     intervenable.load_state_dict(torch.load(model_path))
-    intervention_params = BoundlessRotatedSpaceIntervention(embed_dim=4096)
+    intervention_params = pv.BoundlessRotatedSpaceIntervention(embed_dim=4096)
     intervention_params.load_state_dict(torch.load(model_params_path))
 
     key = list(intervenable.representations.keys())[0]

@@ -1,3 +1,10 @@
+import torch
+import sys
+
+sys.path.append('../pyvene/')
+from pyvene.models.basic_utils import sigmoid_boundary
+
+
 """
 Given an Intervenable object with BDAS intervention, 
 return its rotation matrix and boundary masks
@@ -21,7 +28,11 @@ def get_bdas_params(intervenable):
     return intervention, Q, boundary_mask
 
 
-def llm_predict(model, tokenizer, input_batch, 
+"""
+A wrapper to run inference on <model> with <tokenizer>.
+Accepts a list of strings and returns a list of strings.
+"""
+def llm_predict(model, tokenizer, device, input_batch, 
                 generate=False, gen_length=None):
     input_ids = tokenizer(input_batch, 
                           return_tensors="pt", 
@@ -30,7 +41,7 @@ def llm_predict(model, tokenizer, input_batch,
 
     with torch.no_grad():
         if generate:
-            output_ids = llama.generate(**input_ids, 
+            output_ids = model.generate(**input_ids, 
                                         max_length=input_len+gen_length)
             output_preds = tokenizer.batch_decode(output_ids[:, input_len:], 
                                                   skip_special_tokens=True, 

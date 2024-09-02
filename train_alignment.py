@@ -15,8 +15,8 @@ LlamaForCausalLM, LlamaTokenizer, LlamaConfig
 import sys
 sys.path.append('../pyvene/')
 import pyvene as pv
-from pyvene.models.intervenable_base import IntervenableModel
-from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
+# from pyvene.models.intervenable_base import IntervenableModel
+# from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
 
 
 def create_llama(name="sharpbai/alpaca-7b-merged", 

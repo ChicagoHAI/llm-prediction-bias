@@ -1,8 +1,7 @@
 import numpy as np
-import random
 import argparse
 import os
-from datasets import Dataset, load_dataset
+from datasets import load_dataset
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import seaborn as sns
