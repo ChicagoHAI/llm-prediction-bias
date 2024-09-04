@@ -7,7 +7,6 @@ from datasets import load_dataset, Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import sys
-# from typing import Literal
 import argparse
 
 sys.path.append('../pyvene/')
@@ -33,34 +32,18 @@ Answer:
 
 """
 
-
-# bs = 64
-# random_seed = 42
-# patch_layers = range(2, 4) # specify a start and end point in the args
-# patch_tokens: Literal["naive", "precise", "random"] = "precise"
-# concept_subspace: Literal["naive", "aligned", "control"] = "naive"
-# intervention_strength = 1.4
-
-# base_task_path = './llm_prediction_bias/datasets/admissions_short_race'
-# align_path = './llm_prediction_bias/alignments/synthetic_short_high_iia/layer_2_pos_17'
-# email_path = './llm_prediction_bias/datasets/hiring_email_generation/hiring_email.csv'
-# model_name = "/data/LLAMA/sharpbai-alpaca-7b-merged"
-
-# collect_layer = 2
-# collect_pos = 17
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Process input arguments for model configuration.")
 
     # Integer arguments
     parser.add_argument('--bs', type=int, default=64, help='Batch size')
-    parser.add_argument('--dataset_size', type=int, default=1600, help='Size of the sampled dataset for email generation')
     parser.add_argument('--random_seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--patch_start', type=int, default=2, help='Start of patch layers range')
-    parser.add_argument('--patch_end', type=int, default=4, help='End of patch layers range')
     parser.add_argument('--collect_layer', type=int, default=2, help='Layer to collect activations from')
     parser.add_argument('--collect_pos', type=int, default=17, help='Position to collect activations from')
+
+    parser.add_argument('--dataset_size', type=int, default=1600, help='Size of the sampled dataset for email generation')
+    parser.add_argument('--patch_start', type=int, default=2, help='Start of patch layers range')
+    parser.add_argument('--patch_end', type=int, default=6, help='End of patch layers range')
 
     # Floating point arguments
     parser.add_argument('--intervention_strength', type=float, default=1.4, help='Strength of the intervention')
@@ -154,7 +137,7 @@ vene_add = pv.IntervenableModel(
         "component": "block_output",
         "intervention_type": pv.AdditionIntervention,
     } 
-        for layer in range(2, 6)
+        for layer in patch_layers
     ],
     model = llama
 )
@@ -263,10 +246,12 @@ with torch.no_grad():
         seq_len = base_tokens['input_ids'].shape[1]
 
         if patch_tokens == 'naive':
-            patches = np.arange(0, seq_len)
+            patches = np.arange(0, seq_len).tolist()
         elif patch_tokens == 'random':
             num_pos_precise = len(patches)
-            patches = np.random.randint(0, seq_len, num_pos_precise)
+            patches = np.random.randint(
+                0, seq_len, num_pos_precise
+            ).tolist()
         
         num_pos = len(patches)
 
