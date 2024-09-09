@@ -27,6 +27,10 @@ def create_llama(name="sharpbai/alpaca-7b-merged",
     )
     return config, tokenizer, llama
 
+"""
+Load a trained BoundlessRotatedSpace alignment. Assumes the user is only
+loading in one alignment potentially across multiple layers.
+"""
 def load_alignment(save_path, config, model):
     # We assume the model is saved with these two files
     model_path = os.path.join(save_path, "model.pt")
@@ -37,9 +41,10 @@ def load_alignment(save_path, config, model):
     intervention_params = pv.BoundlessRotatedSpaceIntervention(embed_dim=4096)
     intervention_params.load_state_dict(torch.load(model_params_path))
 
-    key = list(intervenable.representations.keys())[0]
-    hook = intervenable.interventions[key][1]
-    intervenable.interventions[key] = (intervention_params, hook)
+    keys = list(intervenable.representations.keys())
+    for key in keys:
+        hook = intervenable.interventions[key][1]
+        intervenable.interventions[key] = (intervention_params, hook)
     
     return intervenable
 

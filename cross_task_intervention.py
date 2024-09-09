@@ -43,12 +43,13 @@ def parse_args():
 
     parser.add_argument('--dataset_size', type=int, default=1600, help='Size of the sampled dataset for email generation')
     parser.add_argument('--patch_start', type=int, default=2, help='Start of patch layers range')
-    parser.add_argument('--patch_end', type=int, default=6, help='End of patch layers range')
+    parser.add_argument('--patch_end', type=int, default=4, help='End of patch layers range')
 
     # Floating point arguments
     parser.add_argument('--intervention_strength', type=float, default=1.4, help='Strength of the intervention')
 
     # String arguments
+    parser.add_argument('--intervention_type', type=str, choices=["IntInv", "ActAdd"], default="IntInv")
     parser.add_argument('--patch_tokens', type=str, choices=["naive", "precise", "random"], default="precise", help='Type of patch tokens')
     parser.add_argument('--concept_subspace', type=str, choices=["naive", "aligned", "control"], default="naive", help='Concept direction for intervention')
 
@@ -72,6 +73,7 @@ args = parse_args()
 
 bs = args.bs
 random_seed = args.random_seed
+vene_type = args.intervention_type
 patch_layers = range(args.patch_start, args.patch_end)
 patch_tokens = args.patch_tokens
 concept_subspace = args.concept_subspace
@@ -117,17 +119,31 @@ vene_collect.disable_model_gradients()
 
 
 # Interchange intervention
-config_bdas = pv.IntervenableConfig([
-    {
-        "layer": collect_layer,
+bdas_config = pv.IntervenableConfig(
+    [{
+        "layer": layer,
         "component": "block_output",
         "intervention_type": pv.BoundlessRotatedSpaceIntervention,
     }
-])
-vene_bdas = load_alignment(align_path, config_bdas, llama)
+        for layer in patch_layers
+    ],
+)
+vene_bdas = load_alignment(align_path, bdas_config, llama)
 vene_bdas.set_device(device)
 vene_bdas.disable_model_gradients()
 intervention, _, _ = get_bdas_params(vene_bdas)
+
+# config_bdas = pv.IntervenableConfig([
+#     {
+#         "layer": collect_layer,
+#         "component": "block_output",
+#         "intervention_type": pv.BoundlessRotatedSpaceIntervention,
+#     }
+# ])
+# vene_bdas = load_alignment(align_path, config_bdas, llama)
+# vene_bdas.set_device(device)
+# vene_bdas.disable_model_gradients()
+# intervention, _, _ = get_bdas_params(vene_bdas)
 
 
 # Additive intervention
@@ -209,29 +225,60 @@ patch2 = patch1 + dist_to_name_1 + dist_to_name_2
 patch2 = np.unique(np.concatenate([patch2 + i for i in range(8)])) 
 patches = np.concatenate([patch1, patch2]).tolist()
 
-mean_diff = (neg_mean - pos_mean).unsqueeze(0)
 
-transformed_mean_diff = intervention(
-    torch.zeros(mean_diff.shape, device=device), 
-    mean_diff.to(device)
-)
-
-control_mean_diff = intervention(
-    mean_diff.to(device),
-    torch.zeros(mean_diff.shape, device=device)
-)
-
-if concept_subspace == 'naive':
-    final_mean_diff = mean_diff
-elif concept_subspace == 'aligned':
-    final_mean_diff = transformed_mean_diff
-elif concept_subspace == 'control':
-    final_mean_diff = control_mean_diff
-else:
-    raise Exception(
-        "concept_subspace must be one of ['naive', 'aligned', 'control']"
+if vene_type == "IntInv":
+    vene = vene_bdas
+    mean_acts = torch.concatenate([pos_activations, neg_activations], dim=0).mean(dim=0)
+    transformed_mean_acts = mean_acts # the default subspace is already aligned
+    control_mean_acts = torch.zeros(mean_acts.shape, device=device)
+    
+elif vene_type == "ActAdd":
+    vene = vene_add
+    mean_acts = (neg_mean - pos_mean).unsqueeze(0)
+    
+    transformed_mean_acts = intervention(
+        torch.zeros(mean_acts.shape, device=device), 
+        mean_acts.to(device)
     )
-weighted_mean_diff = intervention_strength * final_mean_diff
+    
+    control_mean_acts = intervention(
+        mean_acts.to(device),
+        torch.zeros(mean_acts.shape, device=device)
+    )
+
+if concept_subspace == "naive":
+    final_mean_acts = mean_acts
+elif concept_subspace == "aligned":
+    final_mean_acts = transformed_mean_acts
+elif concept_subspace == "control":
+    final_mean_acts = control_mean_acts
+    
+if vene_type == "ActAdd":
+    final_mean_acts *= intervention_strength
+
+# mean_diff = (neg_mean - pos_mean).unsqueeze(0)
+
+# transformed_mean_diff = intervention(
+#     torch.zeros(mean_diff.shape, device=device), 
+#     mean_diff.to(device)
+# )
+
+# control_mean_diff = intervention(
+#     mean_diff.to(device),
+#     torch.zeros(mean_diff.shape, device=device)
+# )
+
+# if concept_subspace == 'naive':
+#     final_mean_diff = mean_diff
+# elif concept_subspace == 'aligned':
+#     final_mean_diff = transformed_mean_diff
+# elif concept_subspace == 'control':
+#     final_mean_diff = control_mean_diff
+# else:
+#     raise Exception(
+#         "concept_subspace must be one of ['naive', 'aligned', 'control']"
+#     )
+# weighted_mean_diff = intervention_strength * final_mean_diff
 
 all_base_gens = []
 all_ctf_gens = []
@@ -256,11 +303,11 @@ with torch.no_grad():
         num_pos = len(patches)
 
         src_activations = (
-            weighted_mean_diff.reshape(1, 1, -1)
+            final_mean_acts.reshape(1, 1, -1)
             .expand(len(batch), num_pos, -1) # shape (bs, num_pos, hidden)
         )
 
-        base_outputs, ctf_outputs = vene_add.generate(
+        base_outputs, ctf_outputs = vene.generate(
             base_tokens,
             source_representations = src_activations,
             max_length = 200,
