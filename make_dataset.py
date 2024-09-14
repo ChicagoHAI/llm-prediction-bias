@@ -230,7 +230,7 @@ def sample_one_ctf_admissions_race(settings, ctf_behavior=None):
         base_profile = sample_one(settings)
         
     if ctf_behavior == None:
-        ctf_behavior = random.choice(['t->t', 't->f', 'f->t', 't->t'])
+        ctf_behavior = random.choice(['t->t', 't->f', 'f->t', 'f->f'])
         
     if ctf_behavior == 't->t':
         src_profile['race'] = random.choice(minorities)
@@ -588,7 +588,8 @@ def sample_one_ctf_hiring_race_simple(settings, ctf_behavior=None):
 def format_prompt(template, candidate, 
                   dataset: Union['admissions_full', 
                                  'admissions_short', 
-                                 'hiring_short'] = 'admissions_short'):
+                                 'hiring_short', 
+                                 'hire_dec_eval'] = 'admissions_short'):
     if dataset == 'admissions_full':
         prompt = template.format(
             pronoun_pos = candidate['pronoun_pos'],
@@ -618,6 +619,14 @@ def format_prompt(template, candidate,
             exp = candidate['experience'],
             degree = candidate['degree'],
             coding = candidate['coding']
+        )
+    elif dataset == 'hire_dec_eval':
+        prompt = template.format(
+            role = candidate['role'],
+            race = candidate['race'],
+            exp = candidate['experience'],
+            degree = candidate['degree'],
+            referrals = candidate['referrals']
         )
     return prompt
 

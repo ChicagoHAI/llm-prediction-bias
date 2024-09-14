@@ -7,16 +7,13 @@ from sklearn.metrics import accuracy_score
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from torch.nn import CrossEntropyLoss
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
 from transformers import get_linear_schedule_with_warmup, \
 LlamaForCausalLM, LlamaTokenizer, LlamaConfig
 
 import sys
 sys.path.append('../pyvene/')
-import pyvene as pv
-# from pyvene.models.intervenable_base import IntervenableModel
-# from pyvene.models.interventions import BoundlessRotatedSpaceIntervention
+import pyvene as pv # using local pyvene
 
 
 def create_llama(name="sharpbai/alpaca-7b-merged", 

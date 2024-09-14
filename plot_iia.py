@@ -41,13 +41,13 @@ parser.add_argument("--vertical_range", help="""How far up to search.""",
 parser.add_argument("--vertical_step", help="""The step size to search over layers.""", 
                     default=5, type=int)
 
-parser.add_argument("--save_path", help="Path to save the resulting plot.")
+parser.add_argument("--save_file", help="Path to save the resulting plot.")
 
 args = parser.parse_args()
 
 results_path = args.results_path
 ds_path = args.dataset_path
-save_path = args.save_path
+save_file = args.save_file
 
 h_pos = args.horizontal_position
 h_range = args.horizontal_range
@@ -78,8 +78,14 @@ max_seq_len = len(token_ids)
 extra_steps = num_extra_steps * h_step
 
 layers = range(v_pos, max_layer, v_step)
-positions = list(range(h_pos-extra_steps, h_pos+h_range+1, h_step)) \
-+ list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
+positions = list(range(h_pos-extra_steps, h_pos+h_range+1, h_step))
+# + list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
+
+plot_end = False # whether to plot tokens near the end
+if plot_end:
+    positions += list(
+        range((max_seq_len-1)-extra_steps, max_seq_len, h_step)
+    )
 
 res_matrix = np.zeros((len(layers), len(positions)))
 
@@ -87,7 +93,7 @@ for i in range(len(layers)):
     layer = layers[i]
     for j in range(len(positions)):
         position = positions[j]
-        filename = f'layer_{layer}_pos_{position}.txt'
+        filename = f'layer_{layer}_token_{position}.txt'
         
         try:
             with open(os.path.join(results_path, filename), 'r') as fr:
@@ -122,5 +128,5 @@ plt.yticks(fontsize=14)
 plt.xlabel("Token position", fontsize=14)
 plt.ylabel("Layer", fontsize=14)
 
-plt.savefig(save_path, bbox_inches='tight')
+plt.savefig(save_file, bbox_inches='tight')
 
