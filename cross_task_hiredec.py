@@ -30,6 +30,9 @@ def parse_args():
     parser.add_argument("--dataset_path", 
                         help="""Path to the directory containing
                         the counterfactual dataset files.""")
+    parser.add_argument("--base_task",
+                        choices=['Admissions', 'HireDec', 'HireDecEval', 'HireDecNames', 'DiscrimEval'],
+                        default="Admissions")
 
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
 
@@ -70,12 +73,13 @@ src_reduce = args.source_reduction
 collect_layer = args.collect_layer
 collect_pos = args.collect_pos
 
-patch_layers = range(args.patch_start, args.patch_end)
+patch_layers = range(args.patch_start, args.patch_end+1)
 patch_tokens = args.patch_tokens
 token_positions = args.token_positions
 concept_subspace = args.concept_subspace
 
 ds_path = args.dataset_path
+base_task = args.base_task
 align_path = args.alignment_path
 save_path = args.save_path
 
@@ -138,7 +142,7 @@ vene_intinv = pv.IntervenableModel(config_intinv, llama)
 vene_intinv.set_device(device)
 vene_intinv.disable_model_gradients()
 
-df = pd.read_csv(os.path.join(ds_path, 'test.csv'))
+df = pd.read_csv(os.path.join(ds_path, 'test.csv')).sample(800, replace=True)
 
 ds = Dataset.from_pandas(df)
 test_loader = DataLoader(ds, batch_size=bs)
@@ -170,9 +174,17 @@ elif src_reduce == "zero-ablation":
 # making the "precise" patch
 # unfortunately, it is very prompt-specific
 # has to account for different lengths of names and roles
-dist_to_patch = 18
-# dist_to_patch = 25
-patches = (dist_to_patch + np.arange(0, 3)).tolist()
+if base_task == 'Admissions':
+    dist_to_patch = 16
+    patches = (dist_to_patch + np.arange(0, 3)).tolist()
+elif base_task == 'HireDec' or base_task == 'HireDecEval':
+    dist_to_patch = 18
+    patches = (dist_to_patch + np.arange(0, 3)).tolist()
+elif base_task == 'HireDecNames':
+    dist_to_patch = 17
+    patches = (dist_to_patch + np.arange(0, 4)).tolist()
+elif base_task == 'DiscrimEval':
+    patches = np.arange(15, 25).tolist()
 
 if concept_subspace == "naive":
     vene = vene_intinv
