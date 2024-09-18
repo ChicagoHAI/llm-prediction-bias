@@ -724,11 +724,17 @@ Tokenize the label. The returned token index is somewhat
 arbitrary because it depends on the tokenizer. In this case
 it is the LLaMA tokenizer.
 """
-def format_label(label_eng):
-    if label_eng == 'Yes':
-        return 8241
-    else:
-        return 3782
+def format_label(label_eng, model_name):
+    if model_name == "alpaca":
+        if label_eng == 'Yes':
+            return 8241
+        else:
+            return 3782
+    elif model_name == "mistral":
+        if label_eng == 'Yes':
+            return 5613
+        else:
+            return 2501
 
 
 dataset_type_dict = {
