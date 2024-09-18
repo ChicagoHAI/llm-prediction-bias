@@ -86,7 +86,7 @@ for value in var_values:
                 
                 # sampling source examples
                 df_race = df_src.loc[df_src['var'] == value].sample(len(df_ctf), replace=True, random_state=42).reset_index(drop=True)
-                
+
                 df_ctf['source'] = df_race['profile']
                 
                 df_ctf['base_label'] = base_label
@@ -116,13 +116,12 @@ for base_label in labels:
         ].sample(n_samples)
         df_ctfs.append(df_base_src)
 
-df_ctf_balanced = pd.concat(df_ctfs, axis=0)
+df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
+.sample(frac=1).reset_index(drop=True)
 
 df_ctf_balanced[['base_label','src_label']] = df_ctf_balanced[['base_label','src_label']] \
 .replace('Yes', format_label('Yes', model_name)) \
 .replace('No', format_label('No', model_name))
-
-df_ctf_balanced = df_ctf_balanced.reset_index()
 
 len_df = len(df_ctf_balanced)
 train_frac, dev_frac = train_dev_split
