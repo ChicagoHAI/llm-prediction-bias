@@ -85,30 +85,6 @@ if __name__ == "__main__":
                         help='Name or path of the model')
 
     # Training args
-    # parser.add_argument("--horizontal_position", 
-    #                     help="""Where the relevant information 
-    #                         is provided in the prompt. This is
-    #                         to limit the alignment search around
-    #                         that region.""",
-    #                     default=16, type=int)
-    # parser.add_argument("--horizontal_range", 
-    #                     help="""How far right from {h_pos} to
-    #                         search for an alignment.""",
-    #                     default=20, type=int)
-    # parser.add_argument("--horizontal_step", 
-    #                     help="""The step size to search over 
-    #                         positions.""", 
-    #                     default=2, type=int)
-    # parser.add_argument("--extra_steps", 
-    #                     help="""The number of steps before {h_pos} to search.""", 
-    #                     default=4, type=int)
-
-    # parser.add_argument("--vertical_position", help="""Which layer to start the search at.""",
-    #                     default=0, type=int)
-    # parser.add_argument("--vertical_range", help="""How far up to search.""",
-    #                     default=-1, type=int)
-    # parser.add_argument("--vertical_step", help="""The step size to search over layers.""", 
-    #                     default=5, type=int)
     parser.add_argument("--horizontal_start", type=int, default=0)
     parser.add_argument("--horizontal_end", type=int, default=50)
     parser.add_argument("--horizontal_step", type=int, default=1)
@@ -203,6 +179,8 @@ if __name__ == "__main__":
         for position in positions:
             args.save_name = f"layer_{layer}_pos_{position}"
 
+            print(args.save_name)
+
             config = pv.IntervenableConfig([
                 {
                     "layer": layer,
@@ -235,7 +213,10 @@ if __name__ == "__main__":
             ) 
 
             # setting up tensorboard for loss visualization
-            tsboard_path = os.path.join('./tensorboard', args.save_name)
+            tsboard_path = os.path.join(
+                f'./tensorboard/{os.path.basename(model_name)}', 
+                args.save_name
+            )
             os.makedirs(tsboard_path, exist_ok=True)
             writer = SummaryWriter(tsboard_path)
 
@@ -294,7 +275,7 @@ if __name__ == "__main__":
                         logits = counterfactual_outputs.logits[:, -1]
                         preds = logits.argmax(dim=-1).detach().cpu().numpy()
 
-                        print(preds)
+                        # print(preds)
 
                         all_preds.append(preds)
                         all_labels.append(example['src_label'])
@@ -302,6 +283,8 @@ if __name__ == "__main__":
                     all_preds = np.concatenate(all_preds)
                     all_labels = np.concatenate(all_labels)
                     acc = accuracy_score(all_preds, all_labels)
+
+                    print(all_preds[:20])
 
                     writer.add_scalar('dev accuracy', acc, epoch)
 
