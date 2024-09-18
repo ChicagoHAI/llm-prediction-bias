@@ -9,12 +9,15 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from datasets import load_dataset
 from transformers import get_linear_schedule_with_warmup, \
-LlamaForCausalLM, LlamaTokenizer, LlamaConfig
+LlamaForCausalLM, LlamaTokenizer, LlamaConfig, \
+AutoConfig, AutoTokenizer, AutoModelForCausalLM
+from huggingface_hub import login
 
 import sys
 sys.path.append('../pyvene/')
 import pyvene as pv # using local pyvene
 
+# login()
 
 def create_llama(name="sharpbai/alpaca-7b-merged", 
                 cache_dir="../.huggingface_cache"):
@@ -27,6 +30,24 @@ def create_llama(name="sharpbai/alpaca-7b-merged",
         torch_dtype=torch.bfloat16 # save memory
     )
     return config, tokenizer, llama
+
+def create_gemma(
+    name="google/gemma-2b-it", cache_dir="../.huggingface_cache", dtype=torch.bfloat16
+):
+    """Creates a Gemma Causal LM model, config, and tokenizer from the given name and revision"""
+    from transformers import GemmaForCausalLM, GemmaTokenizer, GemmaConfig
+
+    config = GemmaConfig.from_pretrained(name, cache_dir=cache_dir)
+    tokenizer = GemmaTokenizer.from_pretrained(name, 
+                                               cache_dir=cache_dir)
+    gemma = GemmaForCausalLM.from_pretrained(
+        name,
+        config=config,
+        cache_dir=cache_dir,
+        torch_dtype=dtype,  # save memory
+    )
+    print("loaded model")
+    return config, tokenizer, gemma
 
 """
 Calculate cross entropy between logits and 
@@ -59,32 +80,46 @@ if __name__ == "__main__":
 
     parser.add_argument("--dataset_path", help="""Path the the directory containing
                         the dataset files.""")
+    parser.add_argument("--model_name", type=str, 
+                        default='sharpbai/alpaca-7b-merged', 
+                        help='Name or path of the model')
 
     # Training args
-    parser.add_argument("--horizontal_position", 
-                        help="""Where the relevant information 
-                            is provided in the prompt. This is
-                            to limit the alignment search around
-                            that region.""",
-                        default=16, type=int)
-    parser.add_argument("--horizontal_range", 
-                        help="""How far right from {h_pos} to
-                            search for an alignment.""",
-                        default=20, type=int)
-    parser.add_argument("--horizontal_step", 
-                        help="""The step size to search over 
-                            positions.""", 
-                        default=2, type=int)
+    # parser.add_argument("--horizontal_position", 
+    #                     help="""Where the relevant information 
+    #                         is provided in the prompt. This is
+    #                         to limit the alignment search around
+    #                         that region.""",
+    #                     default=16, type=int)
+    # parser.add_argument("--horizontal_range", 
+    #                     help="""How far right from {h_pos} to
+    #                         search for an alignment.""",
+    #                     default=20, type=int)
+    # parser.add_argument("--horizontal_step", 
+    #                     help="""The step size to search over 
+    #                         positions.""", 
+    #                     default=2, type=int)
+    # parser.add_argument("--extra_steps", 
+    #                     help="""The number of steps before {h_pos} to search.""", 
+    #                     default=4, type=int)
+
+    # parser.add_argument("--vertical_position", help="""Which layer to start the search at.""",
+    #                     default=0, type=int)
+    # parser.add_argument("--vertical_range", help="""How far up to search.""",
+    #                     default=-1, type=int)
+    # parser.add_argument("--vertical_step", help="""The step size to search over layers.""", 
+    #                     default=5, type=int)
+    parser.add_argument("--horizontal_start", type=int, default=0)
+    parser.add_argument("--horizontal_end", type=int, default=50)
+    parser.add_argument("--horizontal_step", type=int, default=1)
+
+    parser.add_argument("--vertical_start", type=int, default=0)
+    parser.add_argument("--vertical_end", type=int, default=-1)
+    parser.add_argument("--vertical_step", type=int, default=1)
+
     parser.add_argument("--extra_steps", 
                         help="""The number of steps before {h_pos} to search.""", 
                         default=4, type=int)
-
-    parser.add_argument("--vertical_position", help="""Which layer to start the search at.""",
-                        default=0, type=int)
-    parser.add_argument("--vertical_range", help="""How far up to search.""",
-                        default=-1, type=int)
-    parser.add_argument("--vertical_step", help="""The step size to search over layers.""", 
-                        default=5, type=int)
 
     parser.add_argument("--num_epochs", help="""Number of training epochs.""",
                         default=1, type=int)
@@ -95,35 +130,53 @@ if __name__ == "__main__":
                         help="""Whether to save the resulting
                             alignment or not.""",
                         action='store_true')
-    parser.add_argument("--models_save_path", help="""Path to save the resulting models.
+    parser.add_argument("--models_save_path", 
+                        help="""Path to save the resulting models.
                         Should end in a directory.""")
-    parser.add_argument("--results_save_path", help="""Path to the directory to save
+    parser.add_argument("--results_save_path", 
+                        help="""Path to the directory to save
                         the dev accuracies.""")
 
     args = parser.parse_args()
 
+    ds_path = args.dataset_path
+    model_name = args.model_name
+
     # admisisons race is 16 or 9. p_var is 29, prod_var is 61
     # hiring race is 18
-    h_pos = args.horizontal_position
-    h_range = args.horizontal_range
+
+    h_start = args.horizontal_start
+    h_end = args.horizontal_end
     h_step = args.horizontal_step
     num_extra_steps = args.extra_steps
 
-    v_pos = args.vertical_position
-    v_range = args.vertical_range
+    v_start = args.vertical_start
+    v_end = args.vertical_end
     v_step = args.vertical_step
 
     num_epochs = args.num_epochs
     batch_size = args.batch_size
 
     save_model = args.save_model
-    device = 'cuda:0'
+    device = 'cuda:1'
 
-    _, tokenizer, llama = create_llama()
-    _ = llama.to(device) # single gpu
-    _ = llama.eval() # always no grad on the model
+    # _, tokenizer, llama = create_gemma()
+    # _ = llama.to(device) # single gpu
+    # _ = llama.eval() # always no grad on the model
 
-    ds_path = args.dataset_path
+    config = AutoConfig.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.padding_side = 'left'
+    tokenizer.pad_token = tokenizer.eos_token
+
+    llama = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        config=config,
+        torch_dtype=torch.bfloat16,  # save memory
+    )
+    _ = llama.to(device)
+    _ = llama.eval()
+
     ds = load_dataset('csv', data_files={
         'train': os.path.join(ds_path, 'train.csv'),
         'dev': os.path.join(ds_path, 'dev.csv'),
@@ -134,18 +187,15 @@ if __name__ == "__main__":
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
     test_loader = DataLoader(ds['test'], batch_size=batch_size)
 
-    # Note: layers are 0-indexed but config.num_hidden_layers
-    # returns a 1-indexed number
-    if v_range != -1:
-        max_layer = v_pos + v_range + 1
-    else:
-        max_layer = llama.config.num_hidden_layers
+    if v_end == -1:
+        v_end = llama.config.num_hidden_layers
 
     max_seq_len = len(tokenizer(ds['train'][0]['base']).input_ids)
     extra_steps = num_extra_steps * h_step
 
-    layers = range(v_pos, max_layer, v_step)
-    positions = list(range(h_pos-extra_steps, h_pos+h_range+1, h_step)) \
+    layers = list(range(v_start, v_end+1, v_step))
+
+    positions = list(range(h_start-extra_steps, h_end+1, h_step)) \
     + list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
 
     # we search over layers and token positions
@@ -243,6 +293,9 @@ if __name__ == "__main__":
 
                         logits = counterfactual_outputs.logits[:, -1]
                         preds = logits.argmax(dim=-1).detach().cpu().numpy()
+
+                        print(preds)
+
                         all_preds.append(preds)
                         all_labels.append(example['src_label'])
                         

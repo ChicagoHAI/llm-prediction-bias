@@ -184,7 +184,7 @@ elif base_task == 'HireDecNames':
     dist_to_patch = 17
     patches = (dist_to_patch + np.arange(0, 4)).tolist()
 elif base_task == 'DiscrimEval':
-    patches = np.arange(15, 25).tolist()
+    patches = np.arange(30, 60).tolist()
 
 if concept_subspace == "naive":
     vene = vene_intinv
@@ -230,20 +230,39 @@ with torch.no_grad():
                 .expand(len(base_prompts), num_pos, -1) 
             ) # shape (bs, num_pos, hidden)
 
-        base_outputs, ctf_outputs = vene(
-            base_tokens,
-            source_representations = src_activations,
-            output_original_output = True,
-            unit_locations = {"sources->base": patches},
-        )
+        if base_task != "DiscrimEval":
+            base_outputs, ctf_outputs = vene(
+                base_tokens,
+                source_representations = src_activations,
+                output_original_output = True,
+                unit_locations = {"sources->base": patches},
+            )
 
-        ctf_logits = ctf_outputs.logits[:, -1]
-        ctf_preds = ctf_logits.argmax(dim=-1).cpu().numpy()
-        all_ctf_preds.append(ctf_preds)
+            base_logits = base_outputs.logits[:, -1]
+            base_preds = base_logits.argmax(dim=-1).cpu().numpy()
+            all_base_preds.append(base_preds)
 
-        base_logits = base_outputs.logits[:, -1]
-        base_preds = base_logits.argmax(dim=-1).cpu().numpy()
-        all_base_preds.append(base_preds)
+            ctf_logits = ctf_outputs.logits[:, -1]
+            ctf_preds = ctf_logits.argmax(dim=-1).cpu().numpy()
+            all_ctf_preds.append(ctf_preds)
+        else:
+            base_outputs, ctf_outputs = vene.generate(
+                base_tokens,
+                source_representations = src_activations,
+                max_length = seq_len + 10,
+                output_original_output = True,
+                intervene_on_prompt = True,
+                unit_locations = {"base": patches},
+            )
+
+            base_gen = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
+            ctf_gen = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
+
+            base_preds = [8241 if "Yes" in gen else 3782 for gen in base_gen]
+            ctf_preds = [8241 if "Yes" in gen else 3782 for gen in ctf_gen]
+
+            all_base_preds.append(np.array(base_preds))
+            all_ctf_preds.append(np.array(ctf_preds))
 
 all_base_preds = np.concatenate(all_base_preds)
 all_ctf_preds = np.concatenate(all_ctf_preds)
