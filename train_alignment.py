@@ -292,7 +292,7 @@ if __name__ == "__main__":
 
             # saving the alignment
             if save_alignment:
-                save_alignment(intervenable, args.model_save_path, args.save_name)
+                save_alignment(intervenable, args.models_save_path, args.save_name)
 
             os.makedirs(args.results_save_path, exist_ok=True)
             with open(os.path.join(args.results_save_path, args.save_name + ".txt"), 'w') as fw:
