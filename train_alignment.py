@@ -118,8 +118,10 @@ if __name__ == "__main__":
     ds_path = args.dataset_path
     model_name = args.model_name
 
-    # admisisons race is 16 or 9. p_var is 29, prod_var is 61
-    # hiring race is 18
+    # admisisons race for Alpaca is 16 or 9. p_var is 29, prod_var is 61
+    # admissions race relaxed for Mistral is 43
+    # admissions race strict for Gemma is 14
+    # hiring race for Alpaca is 18
 
     h_start = args.horizontal_start
     h_end = args.horizontal_end

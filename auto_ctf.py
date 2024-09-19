@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("--base_path")
 parser.add_argument("--source_path")
-parser.add_argument("--model_name", choices=['alpaca', 'mistral'])
+parser.add_argument("--model_name", choices=['alpaca', 'mistral', 'gemma'])
 parser.add_argument("--causal_variable", choices=['race', 'race_given_name'])
 parser.add_argument("--p_variables", nargs='+', type=str, 
                     help="input variables that affect var")
@@ -79,13 +79,14 @@ for value in var_values:
 
                 print(f"Num Q-base settings: {len(q_base_settings)}")
                 
-                df_ctf = pd.DataFrame([])
-
                 # sampling base examples
+                df_ctf = pd.DataFrame([])
                 df_ctf['base'] = q_base_settings['profile'].reset_index(drop=True)
                 
                 # sampling source examples
-                df_race = df_src.loc[df_src['var'] == value].sample(len(df_ctf), replace=True, random_state=42).reset_index(drop=True)
+                df_race = df_src.loc[df_src['var'] == value] \
+                .sample(len(df_ctf), replace=True, random_state=42) \
+                .reset_index(drop=True)
 
                 df_ctf['source'] = df_race['profile']
                 

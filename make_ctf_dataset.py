@@ -735,6 +735,11 @@ def format_label(label_eng, model_name):
             return 5613
         else:
             return 2501
+    elif model_name == "gemma":
+        if label_eng == 'Yes':
+            return 3553
+        else:
+            return 1294
 
 
 dataset_type_dict = {
