@@ -102,7 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", help="""Training batch size.""",
                         default=32, type=int)
 
-    parser.add_argument("--save_model", 
+    parser.add_argument("--save_alignment", 
                         help="""Whether to save the resulting
                             alignment or not.""",
                         action='store_true')
@@ -135,8 +135,8 @@ if __name__ == "__main__":
     num_epochs = args.num_epochs
     batch_size = args.batch_size
 
-    save_model = args.save_model
-    device = 'cuda:1'
+    save_alignment = args.save_alignment
+    device = 'cuda'
 
     # _, tokenizer, llama = create_gemma()
     # _ = llama.to(device) # single gpu
@@ -290,8 +290,8 @@ if __name__ == "__main__":
 
                     writer.add_scalar('dev accuracy', acc, epoch)
 
-            # saving the model
-            if save_model:
+            # saving the alignment
+            if save_alignment:
                 save_alignment(intervenable, args.model_save_path, args.save_name)
 
             os.makedirs(args.results_save_path, exist_ok=True)
