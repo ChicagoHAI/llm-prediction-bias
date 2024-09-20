@@ -102,7 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", help="""Training batch size.""",
                         default=32, type=int)
 
-    parser.add_argument("--save_alignment", 
+    parser.add_argument("--save_alignments", 
                         help="""Whether to save the resulting
                             alignment or not.""",
                         action='store_true')
@@ -118,10 +118,23 @@ if __name__ == "__main__":
     ds_path = args.dataset_path
     model_name = args.model_name
 
-    # admisisons race for Alpaca is 16 or 9. p_var is 29, prod_var is 61
-    # admissions race relaxed for Mistral is 43
-    # admissions race strict for Gemma is 14
-    # hiring race for Alpaca is 18
+    """
+    Alpaca:
+    - admissions: 16 or 9 (p_var is 29, prod_var is 61)
+    - hire_dec: 18
+    - hire_dec_eval: 18
+    - hire_dec_names: 17
+    Mistral:
+    - admissions: 43
+    - hire_dec: 40
+    - hire_dec_eval: 18
+    - hire_dec_names: 17
+    Gemma:
+    - admissions: 14
+    - hire_dec: 15
+    - hire-dec-eval: 15
+    - hire-dec-names: 14
+    """
 
     h_start = args.horizontal_start
     h_end = args.horizontal_end
@@ -135,7 +148,7 @@ if __name__ == "__main__":
     num_epochs = args.num_epochs
     batch_size = args.batch_size
 
-    save_alignment = args.save_alignment
+    save_alignments = args.save_alignments
     device = 'cuda'
 
     # _, tokenizer, llama = create_gemma()
@@ -291,7 +304,7 @@ if __name__ == "__main__":
                     writer.add_scalar('dev accuracy', acc, epoch)
 
             # saving the alignment
-            if save_alignment:
+            if save_alignments:
                 save_alignment(intervenable, args.models_save_path, args.save_name)
 
             os.makedirs(args.results_save_path, exist_ok=True)

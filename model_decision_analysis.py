@@ -154,6 +154,8 @@ for pred in preds:
 df_data['pred'] = _preds
 df_data = df_data.loc[df_data['pred'] != "Null"]
 
+# df_data['pred'] = preds
+
 df_data.to_csv(os.path.join(preds_save_path, 'preds.csv'), index=False)
 
 df_pred_no = df_data.loc[df_data['pred'] == 'No']
