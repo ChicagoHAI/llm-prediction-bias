@@ -15,6 +15,7 @@ import pyvene as pv
 
 from eval_alignment import load_alignment
 from utils import get_bdas_params
+from make_ctf_dataset import format_label
 
 
 def parse_args():
@@ -172,19 +173,48 @@ elif src_reduce == "zero-ablation":
     src_rep = torch.zeros(llama.config.hidden_size)
 
 # making the "precise" patch
-# unfortunately, it is very prompt-specific
+# unfortunately, it is very prompt and tokenizer-specific
 # has to account for different lengths of names and roles
-if base_task == 'Admissions':
-    dist_to_patch = 16
-    patches = (dist_to_patch + np.arange(0, 3)).tolist()
-elif base_task == 'HireDec' or base_task == 'HireDecEval':
-    dist_to_patch = 18
-    patches = (dist_to_patch + np.arange(0, 3)).tolist()
-elif base_task == 'HireDecNames':
-    dist_to_patch = 17
-    patches = (dist_to_patch + np.arange(0, 4)).tolist()
-elif base_task == 'DiscrimEval':
-    patches = np.arange(30, 60).tolist()
+
+model_name_lower = model_name.lower()
+if 'alpaca' in model_name_lower:
+    if base_task == 'Admissions':
+        dist_to_patch = 16
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDec' or base_task == 'HireDecEval':
+        dist_to_patch = 18
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDecNames':
+        dist_to_patch = 17
+        patches = (dist_to_patch + np.arange(0, 4)).tolist()
+    elif base_task == 'DiscrimEval':
+        patches = np.arange(30, 60).tolist()
+
+elif 'mistral' in model_name_lower:
+    if base_task == 'Admissions':
+        dist_to_patch = 43
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDec':
+        dist_to_patch = 40
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDecEval':
+        dist_to_patch = 18
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDecNames':
+        dist_to_patch = 17
+        patches = (dist_to_patch + np.arange(0, 4)).tolist()
+
+elif 'gemma' in model_name_lower:
+    if base_task == 'Admissions':
+        dist_to_patch = 14
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDec' or base_task == 'HireDecEval':
+        dist_to_patch = 15
+        patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDecNames':
+        dist_to_patch = 15
+        patches = (dist_to_patch + np.arange(0, 5)).tolist()
+
 
 if concept_subspace == "naive":
     vene = vene_intinv
@@ -258,6 +288,7 @@ with torch.no_grad():
             base_gen = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
             ctf_gen = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
 
+            # note: outdated, the Yes and No token indices vary between models
             base_preds = [8241 if "Yes" in gen else 3782 for gen in base_gen]
             ctf_preds = [8241 if "Yes" in gen else 3782 for gen in ctf_gen]
 
