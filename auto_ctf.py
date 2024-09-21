@@ -18,7 +18,7 @@ parser.add_argument("--model_name", choices=['alpaca', 'mistral', 'gemma'])
 parser.add_argument("--causal_variable", choices=['race', 'race_given_name'])
 parser.add_argument("--p_variables", nargs='+', type=str, 
                     help="input variables that affect var")
-parser.add_argument("--q_variables", nargs='+', type=str, 
+parser.add_argument("--q_variables", nargs='*', type=str, 
                     help="input variables that do not affect var")
 parser.add_argument("--train_dev_split", nargs='+', type=float)
 parser.add_argument("--save_path", default='./')
@@ -64,10 +64,14 @@ for value in var_values:
             
             dfs = []
             for _, row in p_q_base_settings.iterrows():
-                df = df_base.loc[
-                    (df_base[q_vars] == row[q_vars]).all(axis=1) & 
-                    (df_base['var'] != value)
-                ]
+                if len(q_vars) > 0:
+                    # df = df_base.loc[
+                    #     (df_base[q_vars] == row[q_vars]).all(axis=1) & 
+                    #     (df_base['var'] != value)
+                    # ]
+                    df = df_base.loc[(df_base[q_vars] == row[q_vars]).all(axis=1)]
+                else:
+                    df = df_base
                 dfs.append(df)
                 
             if len(dfs) > 0:
@@ -106,7 +110,9 @@ for base_label in labels:
         ]
         ctf_behavior_counts.append(len(base_src))
 
-n_samples = min(ctf_behavior_counts)
+# n_samples = min(ctf_behavior_counts)
+nonzero_counts = [count for count in ctf_behavior_counts if count != 0]
+n_samples = min(nonzero_counts)
 
 df_ctfs = []
 for base_label in labels:
@@ -120,9 +126,13 @@ for base_label in labels:
 df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
 .sample(frac=1).reset_index(drop=True)
 
+# doing manual tokenization because the model's output Yes or No tokens
+# can be different from the tokenizer's, weird.
 df_ctf_balanced[['base_label','src_label']] = df_ctf_balanced[['base_label','src_label']] \
 .replace('Yes', format_label('Yes', model_name)) \
 .replace('No', format_label('No', model_name))
+
+# print(df_ctf_balanced)
 
 len_df = len(df_ctf_balanced)
 train_frac, dev_frac = train_dev_split

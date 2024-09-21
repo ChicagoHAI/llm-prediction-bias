@@ -13,9 +13,33 @@ import argparse
 sys.path.append('../pyvene/')
 import pyvene as pv
 
-from eval_alignment import load_alignment
+# from eval_alignment import load_alignment
 from utils import get_bdas_params
 from make_ctf_dataset import format_label
+
+
+"""
+Load a trained BoundlessRotatedSpace alignment. Assumes the user is only
+loading in one alignment potentially across multiple layers.
+"""
+def load_alignment(save_path, config, model):
+    # We assume the model is saved with these two files
+    model_path = os.path.join(save_path, "model.pt")
+    model_params_path = os.path.join(save_path, "model_params.pt")
+
+    intervenable = pv.IntervenableModel(config, model)
+    intervenable.load_state_dict(torch.load(model_path))
+    intervention_params = pv.BoundlessRotatedSpaceIntervention(
+        embed_dim=model.config.hidden_size
+    )
+    intervention_params.load_state_dict(torch.load(model_params_path))
+
+    keys = list(intervenable.representations.keys())
+    for key in keys:
+        hook = intervenable.interventions[key][1]
+        intervenable.interventions[key] = (intervention_params, hook)
+    
+    return intervenable
 
 
 def parse_args():
@@ -32,10 +56,12 @@ def parse_args():
                         help="""Path to the directory containing
                         the counterfactual dataset files.""")
     parser.add_argument("--base_task",
-                        choices=['Admissions', 'HireDec', 'HireDecEval', 'HireDecNames', 'DiscrimEval'],
+                        choices=['Admissions', 'HireDec', 'HireDecEval', 'HireDecNames', 'DiscrimEval', 'RaceQA'],
                         default="Admissions")
 
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
+    parser.add_argument('--n_test', type=int, default=1000)
+    parser.add_argument('--generate', action='store_true')
 
     parser.add_argument('--source_reduction', type=str, 
                         choices=["selection", "mean", "zero-ablation"], 
@@ -69,7 +95,9 @@ def parse_args():
 args = parse_args()
 
 bs = args.batch_size
+n_test = args.n_test
 src_reduce = args.source_reduction
+generate = args.generate
 
 collect_layer = args.collect_layer
 collect_pos = args.collect_pos
@@ -143,7 +171,8 @@ vene_intinv = pv.IntervenableModel(config_intinv, llama)
 vene_intinv.set_device(device)
 vene_intinv.disable_model_gradients()
 
-df = pd.read_csv(os.path.join(ds_path, 'test.csv')).sample(800, replace=True)
+df = pd.read_csv(os.path.join(ds_path, 'test.csv')) \
+.sample(n_test, replace=True)
 
 ds = Dataset.from_pandas(df)
 test_loader = DataLoader(ds, batch_size=bs)
@@ -181,14 +210,20 @@ if 'alpaca' in model_name_lower:
     if base_task == 'Admissions':
         dist_to_patch = 16
         patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDec' or base_task == 'HireDecEval':
+    elif base_task == 'HireDec':
         dist_to_patch = 18
         patches = (dist_to_patch + np.arange(0, 3)).tolist()
+    elif base_task == 'HireDecEval':
+        dist_to_patch = 18
+        patches = (dist_to_patch + np.arange(0, 5)).tolist()
     elif base_task == 'HireDecNames':
         dist_to_patch = 17
         patches = (dist_to_patch + np.arange(0, 4)).tolist()
     elif base_task == 'DiscrimEval':
         patches = np.arange(30, 60).tolist()
+    elif base_task == 'RaceQA':
+        dist_to_patch = 15
+        patches = (dist_to_patch + np.arange(0, 4)).tolist()
 
 elif 'mistral' in model_name_lower:
     if base_task == 'Admissions':
@@ -203,6 +238,9 @@ elif 'mistral' in model_name_lower:
     elif base_task == 'HireDecNames':
         dist_to_patch = 17
         patches = (dist_to_patch + np.arange(0, 4)).tolist()
+    elif base_task == 'RaceQA':
+        dist_to_patch = 15
+        patches = (dist_to_patch + np.arange(0, 4)).tolist()
 
 elif 'gemma' in model_name_lower:
     if base_task == 'Admissions':
@@ -214,6 +252,9 @@ elif 'gemma' in model_name_lower:
     elif base_task == 'HireDecNames':
         dist_to_patch = 15
         patches = (dist_to_patch + np.arange(0, 5)).tolist()
+    elif base_task == 'RaceQA':
+        dist_to_patch = 12
+        patches = (dist_to_patch + np.arange(0, 4)).tolist()
 
 
 if concept_subspace == "naive":
@@ -260,22 +301,7 @@ with torch.no_grad():
                 .expand(len(base_prompts), num_pos, -1) 
             ) # shape (bs, num_pos, hidden)
 
-        if base_task != "DiscrimEval":
-            base_outputs, ctf_outputs = vene(
-                base_tokens,
-                source_representations = src_activations,
-                output_original_output = True,
-                unit_locations = {"sources->base": patches},
-            )
-
-            base_logits = base_outputs.logits[:, -1]
-            base_preds = base_logits.argmax(dim=-1).cpu().numpy()
-            all_base_preds.append(base_preds)
-
-            ctf_logits = ctf_outputs.logits[:, -1]
-            ctf_preds = ctf_logits.argmax(dim=-1).cpu().numpy()
-            all_ctf_preds.append(ctf_preds)
-        else:
+        if generate:
             base_outputs, ctf_outputs = vene.generate(
                 base_tokens,
                 source_representations = src_activations,
@@ -285,18 +311,42 @@ with torch.no_grad():
                 unit_locations = {"base": patches},
             )
 
-            base_gen = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
-            ctf_gen = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
+            base_outputs = base_outputs[:, seq_len:]
+            ctf_outputs = ctf_outputs[:, seq_len:]
 
-            # note: outdated, the Yes and No token indices vary between models
-            base_preds = [8241 if "Yes" in gen else 3782 for gen in base_gen]
-            ctf_preds = [8241 if "Yes" in gen else 3782 for gen in ctf_gen]
+            base_preds = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
+            ctf_preds = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
 
-            all_base_preds.append(np.array(base_preds))
-            all_ctf_preds.append(np.array(ctf_preds))
+            base_preds = [pred.strip() for pred in base_preds]
+            ctf_preds = [pred.strip() for pred in ctf_preds]
 
-all_base_preds = np.concatenate(all_base_preds)
-all_ctf_preds = np.concatenate(all_ctf_preds)
+        else:
+            base_outputs, ctf_outputs = vene(
+                base_tokens,
+                source_representations = src_activations,
+                output_original_output = True,
+                unit_locations = {"sources->base": patches},
+            )
+
+            base_logits = base_outputs.logits[:, -1]
+            ctf_logits = ctf_outputs.logits[:, -1]
+
+            # base_preds = base_logits.argmax(dim=-1).cpu().numpy()
+            # ctf_preds = ctf_logits.argmax(dim=-1).cpu().numpy()
+
+            base_preds = base_logits.argmax(dim=-1).cpu().tolist()
+            ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
+
+            # all_base_preds.append(base_preds)
+            # all_ctf_preds.append(ctf_preds)
+
+        all_base_preds += base_preds
+        all_ctf_preds += ctf_preds
+
+# all_base_preds = np.concatenate(all_base_preds)
+# all_ctf_preds = np.concatenate(all_ctf_preds)
+# all_base_preds = tokenizer.batch_decode(all_base_preds)
+# all_ctf_preds = tokenizer.batch_decode(all_ctf_preds)
 
 df['base_pred'] = all_base_preds
 df['ctf_pred'] = all_ctf_preds
