@@ -19,35 +19,35 @@ import pyvene as pv # using local pyvene
 
 # login()
 
-def create_llama(name="sharpbai/alpaca-7b-merged", 
-                cache_dir="../.huggingface_cache"):
-    config = LlamaConfig.from_pretrained(name, cache_dir=cache_dir)
-    tokenizer = LlamaTokenizer.from_pretrained(name, 
-                                            cache_dir=cache_dir, 
-                                            padding_side='left')
-    llama = LlamaForCausalLM.from_pretrained(
-        name, config=config, cache_dir=cache_dir, 
-        torch_dtype=torch.bfloat16 # save memory
-    )
-    return config, tokenizer, llama
+# def create_llama(name="sharpbai/alpaca-7b-merged", 
+#                 cache_dir="../.huggingface_cache"):
+#     config = LlamaConfig.from_pretrained(name, cache_dir=cache_dir)
+#     tokenizer = LlamaTokenizer.from_pretrained(name, 
+#                                             cache_dir=cache_dir, 
+#                                             padding_side='left')
+#     llama = LlamaForCausalLM.from_pretrained(
+#         name, config=config, cache_dir=cache_dir, 
+#         torch_dtype=torch.bfloat16 # save memory
+#     )
+#     return config, tokenizer, llama
 
-def create_gemma(
-    name="google/gemma-2b-it", cache_dir="../.huggingface_cache", dtype=torch.bfloat16
-):
-    """Creates a Gemma Causal LM model, config, and tokenizer from the given name and revision"""
-    from transformers import GemmaForCausalLM, GemmaTokenizer, GemmaConfig
+# def create_gemma(
+#     name="google/gemma-2b-it", cache_dir="../.huggingface_cache", dtype=torch.bfloat16
+# ):
+#     """Creates a Gemma Causal LM model, config, and tokenizer from the given name and revision"""
+#     from transformers import GemmaForCausalLM, GemmaTokenizer, GemmaConfig
 
-    config = GemmaConfig.from_pretrained(name, cache_dir=cache_dir)
-    tokenizer = GemmaTokenizer.from_pretrained(name, 
-                                               cache_dir=cache_dir)
-    gemma = GemmaForCausalLM.from_pretrained(
-        name,
-        config=config,
-        cache_dir=cache_dir,
-        torch_dtype=dtype,  # save memory
-    )
-    print("loaded model")
-    return config, tokenizer, gemma
+#     config = GemmaConfig.from_pretrained(name, cache_dir=cache_dir)
+#     tokenizer = GemmaTokenizer.from_pretrained(name, 
+#                                                cache_dir=cache_dir)
+#     gemma = GemmaForCausalLM.from_pretrained(
+#         name,
+#         config=config,
+#         cache_dir=cache_dir,
+#         torch_dtype=dtype,  # save memory
+#     )
+#     print("loaded model")
+#     return config, tokenizer, gemma
 
 """
 Calculate cross entropy between logits and 
@@ -150,10 +150,6 @@ if __name__ == "__main__":
 
     save_alignments = args.save_alignments
     device = 'cuda'
-
-    # _, tokenizer, llama = create_gemma()
-    # _ = llama.to(device) # single gpu
-    # _ = llama.eval() # always no grad on the model
 
     config = AutoConfig.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
