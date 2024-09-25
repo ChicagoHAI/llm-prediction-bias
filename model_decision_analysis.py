@@ -12,9 +12,9 @@ import sys
 sys.path.append('../pyvene/')
 import pyvene as pv # using local pyvene
 
-from utils import llm_predict
-from make_ctf_dataset import HIRE_DEC_NAMES_SETTINGS, format_prompt, sample_one, \
-HIRE_DEC_EVAL_SETTINGS, HIRING_SETTINGS_SHORT, BIOS_SETTINGS_SHORT
+from utils import HIRE_DEC_NAMES_SETTINGS, HIRE_DEC_EVAL_SETTINGS, \
+HIRING_SETTINGS_SHORT, BIOS_SETTINGS_SHORT, \
+llm_predict, format_prompt, sample_one
 
 
 def get_race_pos(prompt):
@@ -164,12 +164,10 @@ df_pred_yes = df_data.loc[df_data['pred'] == 'Yes']
 print(len(df_pred_no))
 print(len(df_pred_yes))
 
-# features = list(settings.keys())
 features = df_data.drop(columns=['profile','pred']).columns
 for feature in features:
     print(feature)
     
-    # bin_vals = settings[feature]
     bin_vals = df_data[feature].unique().tolist()
     yes_count = df_pred_yes[feature].value_counts()
     no_count = df_pred_no[feature].value_counts()
