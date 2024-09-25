@@ -39,6 +39,11 @@ parser.add_argument("--model_name", type=str,
 parser.add_argument("--alignment_path", type=str)
 parser.add_argument("--collect_layer", type=int)
 parser.add_argument("--collect_pos", type=int)
+parser.add_argument('--patch_start', type=int, default=2, 
+                        help='Start of patch layers range')
+parser.add_argument('--patch_end', type=int, default=3, 
+                    help='End of patch layers range')
+parser.add_argument('--patch_tokens', nargs='+', type=int)
 
 parser.add_argument("--dataset_size", type=int)
 parser.add_argument("--train_dev_split", nargs='+', type=float)
@@ -64,8 +69,11 @@ args = parser.parse_args()
 make_acts_dataset = args.make_acts_dataset
 model_name = args.model_name
 align_path = args.alignment_path
-layer = args.collect_layer
-token_ind = args.collect_pos
+
+collect_layer = args.collect_layer
+collect_pos = args.collect_pos
+patch_layers = range(args.patch_start, args.patch_end+1)
+patch_tokens = args.patch_tokens
 
 ds_path = args.dataset_path
 ds_size = args.dataset_size
@@ -87,8 +95,8 @@ os.makedirs(acts_save_path, exist_ok=True)
 os.makedirs(results_save_path, exist_ok=True)
 
 bs = 32
-num_epochs = 20
-device = 'cuda:1'
+num_epochs = 10
+device = 'cuda'
 
 config = AutoConfig.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -103,6 +111,17 @@ ds = ds['train'].shuffle(seed=42).select(range(ds_size))
 ds = process_dataset(ds)
 ds_loader = DataLoader(ds, batch_size=bs)
 
+if v_end == -1:
+    v_end = config.num_hidden_layers
+
+max_seq_len = 123
+extra_steps = num_extra_steps * h_step
+
+layers = list(range(v_start, v_end+1, v_step))
+token_inds = list(range(h_start-extra_steps, h_end+1, h_step)) \
++ list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
+
+
 if make_acts_dataset:
     llama = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -112,14 +131,29 @@ if make_acts_dataset:
     _ = llama.to(device)
     _ = llama.eval()
 
-    llama.config.output_hidden_states = True
-    config_bdas = pv.IntervenableConfig([
+    # Intervenable for activation collection
+    config_collect = pv.IntervenableConfig([
         {
-            "layer": layer,
-            "component": 'block_output',
-            "intervention_type": pv.BoundlessRotatedSpaceIntervention,
+            "layer": collect_layer,
+            "component": "block_output",
+            "intervention_type": pv.CollectIntervention
         }
     ])
+    vene_collect = pv.IntervenableModel(config_collect, llama)
+    vene_collect.set_device(device)
+    vene_collect.disable_model_gradients()
+
+    # Rotated interchange intervention
+    llama.config.output_hidden_states = True
+    config_bdas = pv.IntervenableConfig(
+        [{
+            "layer": layer,
+            "component": "block_output",
+            "intervention_type": pv.BoundlessRotatedSpaceIntervention,
+        }
+            for layer in patch_layers
+        ],
+    )
     vene_bdas = load_alignment(align_path, config_bdas, llama)
     vene_bdas.set_device(device)
     vene_bdas.disable_model_gradients()
@@ -134,19 +168,29 @@ if make_acts_dataset:
                                 return_tensors="pt", 
                                 padding=True).to(device)
 
+            num_pos = len(patch_tokens)
+
+            intervenable_out = vene_collect(
+                source_tokens,                                 
+                unit_locations={"base": collect_pos},                                       
+            )
+            # intervenable_out is ((_, activations), _)
+            activations = intervenable_out[0][1]
+            activations = torch.concatenate(activations).unsqueeze(1)
+            src_activations = activations.expand(-1, num_pos, -1)
 
             _, ctf_outputs = vene_bdas(
-                                base_tokens,
-                                [source_tokens],
-                                {"sources->base": token_ind},
-                            )
+                base_tokens,
+                source_representations = src_activations,
+                unit_locations = {"sources->base": patch_tokens},
+            )
 
             hidden_states = [acts.unsqueeze(0) 
                             for acts in ctf_outputs.hidden_states]
             hidden_states = torch.concatenate(hidden_states)
 
-            if hidden_states.shape[2] == 124: # length of Admissions prompt
-                acts.append(hidden_states[:, :, :-1, :].cpu())
+            if hidden_states.shape[2] > max_seq_len: # length of Admissions prompt
+                acts.append(hidden_states[:, :, :max_seq_len+1, :].cpu())
             else:
                 acts.append(hidden_states.cpu())
 
@@ -155,6 +199,12 @@ if make_acts_dataset:
         acts, 
         "layers samples tokens hidden_size -> samples layers tokens hidden_size" 
     )
+
+    # sanity check
+    print(acts.shape)
+    s, l, t, h = acts.shape
+    assert (s == ds_size and l == config.num_hidden_layers + 1
+    and h == config.hidden_size)
 
     # making the train-dev-test split
     train_frac, dev_frac = train_dev_split
@@ -178,6 +228,8 @@ if make_acts_dataset:
     torch.save(train_ds, os.path.join(acts_save_path, "dev.pt"))
     torch.save(train_ds, os.path.join(acts_save_path, "test.pt"))
 
+    print("Created datasets of post-intervention activations.")
+
 else:
     train_ds = torch.load(
         os.path.join(acts_save_path, "train.pt"), 
@@ -188,16 +240,6 @@ else:
 
 train_loader = DataLoader(train_ds, batch_size=bs)
 dev_loader = DataLoader(dev_ds, batch_size=bs)
-
-if v_end == -1:
-    v_end = config.num_hidden_layers
-
-max_seq_len = 123
-extra_steps = num_extra_steps * h_step
-
-layers = list(range(v_start, v_end+1, v_step))
-token_inds = list(range(h_start-extra_steps, h_end+1, h_step)) \
-+ list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
 
 for layer in layers:
     for token_ind in token_inds:
