@@ -1,14 +1,18 @@
 import os
+import random
+import argparse
+from tqdm import tqdm
+
 import torch
 import numpy as np
 import pandas as pd
+from sklearn.metrics import accuracy_score
+
 from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
 from datasets import Dataset
 from torch.utils.data import DataLoader
-from sklearn.metrics import accuracy_score
-from tqdm import tqdm
+
 import sys
-import argparse
 
 sys.path.append('../pyvene/')
 import pyvene as pv
@@ -60,12 +64,15 @@ def parse_args():
                         default="Admissions")
 
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
-    parser.add_argument('--n_test', type=int, default=1000)
+    parser.add_argument('--n_test', type=int, default=-1)
     parser.add_argument('--generate', action='store_true')
 
     parser.add_argument('--source_reduction', type=str, 
                         choices=["selection", "mean", "zero-ablation"], 
                         default="selection")
+    
+    parser.add_argument('--method', 
+                        choices=["das", "probing", "random"], default="das")
 
     parser.add_argument('--collect_layer', type=int, default=2, 
                         help='Layer to collect activations from')
@@ -78,9 +85,9 @@ def parse_args():
                         help='End of patch layers range')
     
     parser.add_argument('--patch_tokens', type=str, 
-                        choices=["naive", "precise", "random"], default="precise", 
+                        choices=["naive", "precise", "random", "custom"], default="precise", 
                         help='Type of patch tokens')
-    parser.add_argument('--token_positions', nargs='+', type=int)
+    parser.add_argument('--patch_token_positions', nargs='+', type=int)
     
     parser.add_argument('--concept_subspace', type=str, 
                         choices=["naive", "aligned"], default="aligned", 
@@ -99,12 +106,13 @@ n_test = args.n_test
 src_reduce = args.source_reduction
 generate = args.generate
 
+method = args.method
 collect_layer = args.collect_layer
 collect_pos = args.collect_pos
 
 patch_layers = range(args.patch_start, args.patch_end+1)
 patch_tokens = args.patch_tokens
-token_positions = args.token_positions
+patch_token_positions = args.patch_token_positions
 concept_subspace = args.concept_subspace
 
 ds_path = args.dataset_path
@@ -113,9 +121,7 @@ align_path = args.alignment_path
 save_path = args.save_path
 
 model_name = args.model_name
-device = 'cuda:1'
-
-os.makedirs(save_path, exist_ok=True)
+device = 'cuda:0'
 
 config = AutoConfig.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -171,11 +177,108 @@ vene_intinv = pv.IntervenableModel(config_intinv, llama)
 vene_intinv.set_device(device)
 vene_intinv.disable_model_gradients()
 
-df = pd.read_csv(os.path.join(ds_path, 'test.csv')) \
-.sample(n_test, replace=True)
+df = pd.read_csv(os.path.join(ds_path, 'test.csv'))
+if n_test != -1:
+    df = df.sample(n_test, replace=True)
 
 ds = Dataset.from_pandas(df)
 test_loader = DataLoader(ds, batch_size=bs)
+
+# making the patches
+# unfortunately, they are very prompt and tokenizer-specific
+# has to account for different lengths of names and roles
+model_name_lower = model_name.lower()
+if method == 'das':
+    if 'alpaca' in model_name_lower:
+        if base_task == 'Admissions':
+            dist_to_patch = 16
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+        elif base_task == 'HireDec':
+            dist_to_patch = 18
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+        elif base_task == 'HireDecEval':
+            dist_to_patch = 18
+            patches = (dist_to_patch + np.arange(0, 7)).tolist()
+        elif base_task == 'HireDecNames':
+            dist_to_patch = 17
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
+        elif base_task == 'DiscrimEval':
+            patches = np.arange(30, 60).tolist()
+        elif base_task == 'RaceQA':
+            dist_to_patch = 15
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
+
+    elif 'mistral' in model_name_lower:
+        if base_task == 'Admissions':
+            dist_to_patch = 43
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+        elif base_task == 'HireDec':
+            dist_to_patch = 40
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+        elif base_task == 'HireDecEval':
+            dist_to_patch = 18
+            patches = (dist_to_patch + np.arange(0, 6)).tolist()
+        elif base_task == 'HireDecNames':
+            dist_to_patch = 17
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
+        elif base_task == 'RaceQA':
+            dist_to_patch = 15
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
+
+    elif 'gemma' in model_name_lower:
+        if base_task == 'Admissions':
+            dist_to_patch = 13
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+        elif base_task == 'HireDec':
+            dist_to_patch = 14
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+        elif base_task == 'HireDecEval':
+            dist_to_patch = 15
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
+        elif base_task == 'HireDecNames':
+            dist_to_patch = 15
+            patches = (dist_to_patch + np.arange(0, 5)).tolist()
+        elif base_task == 'RaceQA':
+            dist_to_patch = 12
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
+
+elif method == 'probing':
+    probe_range = 14
+    num_pos = 5
+
+    if 'alpaca' in model_name_lower:
+        if base_task == 'Admissions':
+            start = 17
+        elif base_task == 'HireDecEval':
+            start = 18
+    elif 'mistral' in model_name_lower:
+        if base_task == 'Admissions':
+            start = 43
+        elif base_task == 'HireDecEval':
+            start = 18
+    elif 'gemma' in model_name_lower:
+        if base_task == 'Admissions':
+            start = 13
+        elif base_task == 'HireDecEval':
+            start = 15
+            
+    collect_pos = random.sample(range(start, start + probe_range), num_pos)
+    patch_token_positions = collect_pos # overwriting
+    patch_tokens = 'custom'
+    concept_subspace = 'naive'
+    save_path = save_path + f"_tokens_{str(sorted(patch_token_positions))}"
+
+elif method == 'random':
+    max_seq_len = tokenizer(
+        ds['base'][:100], padding=True, return_tensors="pt"
+    ).input_ids.shape[1]
+    collect_pos = random.sample(range(0, max_seq_len), 5)
+    patch_token_positions = collect_pos
+    patch_tokens = 'custom'
+    concept_subspace = 'naive'
+
+os.makedirs(save_path, exist_ok=True)
+
 
 if src_reduce == "mean":
     all_src_acts = []
@@ -201,66 +304,13 @@ if src_reduce == "mean":
 elif src_reduce == "zero-ablation":
     src_rep = torch.zeros(llama.config.hidden_size)
 
-# making the "precise" patch
-# unfortunately, it is very prompt and tokenizer-specific
-# has to account for different lengths of names and roles
-
-model_name_lower = model_name.lower()
-if 'alpaca' in model_name_lower:
-    if base_task == 'Admissions':
-        dist_to_patch = 16
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDec':
-        dist_to_patch = 18
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDecEval':
-        dist_to_patch = 18
-        patches = (dist_to_patch + np.arange(0, 5)).tolist()
-    elif base_task == 'HireDecNames':
-        dist_to_patch = 17
-        patches = (dist_to_patch + np.arange(0, 4)).tolist()
-    elif base_task == 'DiscrimEval':
-        patches = np.arange(30, 60).tolist()
-    elif base_task == 'RaceQA':
-        dist_to_patch = 15
-        patches = (dist_to_patch + np.arange(0, 4)).tolist()
-
-elif 'mistral' in model_name_lower:
-    if base_task == 'Admissions':
-        dist_to_patch = 43
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDec':
-        dist_to_patch = 40
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDecEval':
-        dist_to_patch = 18
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDecNames':
-        dist_to_patch = 17
-        patches = (dist_to_patch + np.arange(0, 4)).tolist()
-    elif base_task == 'RaceQA':
-        dist_to_patch = 15
-        patches = (dist_to_patch + np.arange(0, 4)).tolist()
-
-elif 'gemma' in model_name_lower:
-    if base_task == 'Admissions':
-        dist_to_patch = 14
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDec' or base_task == 'HireDecEval':
-        dist_to_patch = 15
-        patches = (dist_to_patch + np.arange(0, 3)).tolist()
-    elif base_task == 'HireDecNames':
-        dist_to_patch = 15
-        patches = (dist_to_patch + np.arange(0, 5)).tolist()
-    elif base_task == 'RaceQA':
-        dist_to_patch = 12
-        patches = (dist_to_patch + np.arange(0, 4)).tolist()
-
 
 if concept_subspace == "naive":
     vene = vene_intinv
+    print("Using vanilla interchange!")
 elif concept_subspace == "aligned":
     vene = vene_bdas
+    print("Using boundless DAS!")
 
 all_base_preds = []
 all_ctf_preds = []
@@ -274,12 +324,20 @@ with torch.no_grad():
         
         seq_len = base_tokens['input_ids'].shape[1]
 
-        if token_positions:
-            patches = token_positions
+        # default patch is "precise"
+        if patch_tokens == 'custom':
+            if patch_token_positions == None:
+                raise ValueError("Token positions must be specified for \"custom\" patch ")
+            else:
+                patches = patch_token_positions
         elif patch_tokens == 'naive':
             patches = np.arange(0, seq_len).tolist()
         elif patch_tokens == 'random':
-            patches = np.random.randint(0, seq_len, len(patches)).tolist()
+            patches = np.random.randint(0, seq_len, 5).tolist()
+
+        # manual
+        patches = np.arange(seq_len-3, seq_len).tolist()
+
         num_pos = len(patches)
 
         if src_reduce == "selection":
@@ -294,7 +352,13 @@ with torch.no_grad():
             # intervenable_out is ((_, activations), _)
             activations = intervenable_out[0][1]
             activations = torch.concatenate(activations).unsqueeze(1)
-            src_activations = activations.expand(-1, num_pos, -1)
+
+            if args.method == 'das':
+                src_activations = activations.expand(-1, num_pos, -1)
+            else:
+                src_activations = activations.reshape(
+                    len(base_tokens.input_ids), num_pos, -1
+                )
         else:
             src_activations = (
                 src_rep.reshape(1, 1, -1)
@@ -331,22 +395,11 @@ with torch.no_grad():
             base_logits = base_outputs.logits[:, -1]
             ctf_logits = ctf_outputs.logits[:, -1]
 
-            # base_preds = base_logits.argmax(dim=-1).cpu().numpy()
-            # ctf_preds = ctf_logits.argmax(dim=-1).cpu().numpy()
-
             base_preds = base_logits.argmax(dim=-1).cpu().tolist()
             ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
 
-            # all_base_preds.append(base_preds)
-            # all_ctf_preds.append(ctf_preds)
-
         all_base_preds += base_preds
         all_ctf_preds += ctf_preds
-
-# all_base_preds = np.concatenate(all_base_preds)
-# all_ctf_preds = np.concatenate(all_ctf_preds)
-# all_base_preds = tokenizer.batch_decode(all_base_preds)
-# all_ctf_preds = tokenizer.batch_decode(all_ctf_preds)
 
 df['base_pred'] = all_base_preds
 df['ctf_pred'] = all_ctf_preds

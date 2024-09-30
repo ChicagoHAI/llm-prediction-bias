@@ -58,6 +58,7 @@ preds_save_path = args.preds_save_path
 probs_save_path = args.probs_save_path
 plots_save_path = args.plots_save_path
 
+bs = 64
 device = 'cuda'
 
 os.makedirs(preds_save_path, exist_ok=True)
@@ -128,7 +129,7 @@ else:
     df_data['profile'] = prompts
 
 test_data = Dataset.from_dict({'input_text': df_data['profile']})
-test_dataloader = DataLoader(test_data, batch_size=64)
+test_dataloader = DataLoader(test_data, batch_size=bs)
 
 preds = []
 with torch.no_grad():
