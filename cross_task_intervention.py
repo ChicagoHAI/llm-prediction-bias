@@ -121,7 +121,7 @@ align_path = args.alignment_path
 save_path = args.save_path
 
 model_name = args.model_name
-device = 'cuda:0'
+device = 'cuda'
 
 config = AutoConfig.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -198,7 +198,9 @@ if method == 'das':
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
         elif base_task == 'HireDecEval':
             dist_to_patch = 18
-            patches = (dist_to_patch + np.arange(0, 7)).tolist()
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+            # patches = (dist_to_patch + np.arange(0, 7)).tolist()
+            # patches = [18, 19, 20]
         elif base_task == 'HireDecNames':
             dist_to_patch = 17
             patches = (dist_to_patch + np.arange(0, 4)).tolist()
@@ -335,8 +337,8 @@ with torch.no_grad():
         elif patch_tokens == 'random':
             patches = np.random.randint(0, seq_len, 5).tolist()
 
-        # manual
-        patches = np.arange(seq_len-3, seq_len).tolist()
+        # # manual
+        # patches = np.arange(seq_len-3, seq_len).tolist()
 
         num_pos = len(patches)
 
