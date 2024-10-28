@@ -17,37 +17,7 @@ import sys
 sys.path.append('../pyvene/')
 import pyvene as pv # using local pyvene
 
-# login()
-
-# def create_llama(name="sharpbai/alpaca-7b-merged", 
-#                 cache_dir="../.huggingface_cache"):
-#     config = LlamaConfig.from_pretrained(name, cache_dir=cache_dir)
-#     tokenizer = LlamaTokenizer.from_pretrained(name, 
-#                                             cache_dir=cache_dir, 
-#                                             padding_side='left')
-#     llama = LlamaForCausalLM.from_pretrained(
-#         name, config=config, cache_dir=cache_dir, 
-#         torch_dtype=torch.bfloat16 # save memory
-#     )
-#     return config, tokenizer, llama
-
-# def create_gemma(
-#     name="google/gemma-2b-it", cache_dir="../.huggingface_cache", dtype=torch.bfloat16
-# ):
-#     """Creates a Gemma Causal LM model, config, and tokenizer from the given name and revision"""
-#     from transformers import GemmaForCausalLM, GemmaTokenizer, GemmaConfig
-
-#     config = GemmaConfig.from_pretrained(name, cache_dir=cache_dir)
-#     tokenizer = GemmaTokenizer.from_pretrained(name, 
-#                                                cache_dir=cache_dir)
-#     gemma = GemmaForCausalLM.from_pretrained(
-#         name,
-#         config=config,
-#         cache_dir=cache_dir,
-#         torch_dtype=dtype,  # save memory
-#     )
-#     print("loaded model")
-#     return config, tokenizer, gemma
+from utils import save_alignment
 
 """
 Calculate cross entropy between logits and 
@@ -58,21 +28,6 @@ def calculate_loss(logits, labels):
     shift_labels = labels.to(logits.device)
     loss = loss_fct(logits, shift_labels)
     return loss
-
-def save_alignment(intervenable, save_path, save_name):
-    key = list(intervenable.interventions.keys())[0]
-    intervention_params = intervenable.interventions[key][0]
-
-    model_save_path = os.path.join(save_path, 
-                                    save_name + '/model.pt')
-    params_save_path = os.path.join(save_path, 
-                                    save_name + '/model_params.pt')
-
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    os.makedirs(os.path.dirname(params_save_path), exist_ok=True)
-
-    torch.save(intervenable.state_dict(), model_save_path)
-    torch.save(intervention_params.state_dict(), params_save_path)
 
 
 if __name__ == "__main__":
@@ -121,6 +76,7 @@ if __name__ == "__main__":
     """
     Alpaca:
     - admissions: 16 or 9 (p_var is 29, prod_var is 61)
+    - admissions_race_offset: 62
     - hire_dec: 18
     - hire_dec_eval: 18
     - hire_dec_names: 17
@@ -170,14 +126,19 @@ if __name__ == "__main__":
         'test': os.path.join(ds_path, 'test.csv'),
     })
 
-    train_loader = DataLoader(ds['train'], batch_size=batch_size)
+    train_loader = DataLoader(ds['train'].shuffle(seed=42).select(range(500)), batch_size=batch_size)
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
     test_loader = DataLoader(ds['test'], batch_size=batch_size)
 
     if v_end == -1:
         v_end = llama.config.num_hidden_layers
 
-    max_seq_len = len(tokenizer(ds['train'][0]['base']).input_ids)
+    # max_seq_len = len(tokenizer(ds['train'][0]['base']).input_ids)
+    token_ids = tokenizer(ds['train']['base'][:50], 
+                        padding=True, 
+                        return_tensors="pt").input_ids
+    max_seq_len = token_ids.shape[1]
+
     extra_steps = num_extra_steps * h_step
 
     layers = list(range(v_start, v_end+1, v_step))
@@ -188,7 +149,7 @@ if __name__ == "__main__":
     # we search over layers and token positions
     for layer in layers:
         for position in positions:
-            args.save_name = f"layer_{layer}_pos_{position}"
+            args.save_name = f"layer_{layer}_token_{position}"
 
             print(args.save_name)
 
@@ -295,7 +256,7 @@ if __name__ == "__main__":
                     all_labels = np.concatenate(all_labels)
                     acc = accuracy_score(all_preds, all_labels)
 
-                    print(all_preds[:20])
+                    # print(all_preds[:20])
 
                     writer.add_scalar('dev accuracy', acc, epoch)
 
