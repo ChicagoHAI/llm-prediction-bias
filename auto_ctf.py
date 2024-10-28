@@ -1,14 +1,31 @@
 import pandas as pd
 import argparse
 import os
+import re
 
 from make_ctf_dataset import format_label
 
 def race_to_race(row):
     return row['race']
 
-def name_to_race(name):
-    pass
+def get_role(prompt):
+    match = re.search(r'for a\s*(.*?)\s*role', prompt)
+    if match:
+        return match.group(1)
+
+def split_by_role_and_save_csv(df, save_path, data_split='test'):
+    df['role'] = df['base'].apply(get_role)
+    df['role'] = df['role'].apply(lambda x: x.lower().replace(" ", "-"))
+    roles = df['role'].unique()
+
+    for role in roles:
+        save_path_role = save_path.format(role)
+        os.makedirs(save_path_role, exist_ok=True)
+        
+        df_role = df.loc[df['role'] == role]
+        df_role.to_csv(
+            os.path.join(save_path_role, f"{data_split}.csv"), index=False
+        )
 
 parser = argparse.ArgumentParser()
 
@@ -34,8 +51,6 @@ p_vars = args.p_variables # should be defined in the causal function already
 q_vars = args.q_variables
 train_dev_split = args.train_dev_split
 save_path = args.save_path
-
-os.makedirs(save_path, exist_ok=True)
 
 if causal_var == 'race':
     var_name = 'race'
@@ -65,10 +80,6 @@ for value in var_values:
             dfs = []
             for _, row in p_q_base_settings.iterrows():
                 if len(q_vars) > 0:
-                    # df = df_base.loc[
-                    #     (df_base[q_vars] == row[q_vars]).all(axis=1) & 
-                    #     (df_base['var'] != value)
-                    # ]
                     df = df_base.loc[(df_base[q_vars] == row[q_vars]).all(axis=1)]
                 else:
                     df = df_base
@@ -76,15 +87,10 @@ for value in var_values:
                 
             if len(dfs) > 0:
                 q_settings = pd.concat(dfs, axis=0)
-
-                print(f"Num Q settings: {len(q_settings)}")
-
-                q_base_settings = q_settings.loc[q_settings['pred'] == base_label]
-
-                print(f"Num Q-base settings: {len(q_base_settings)}")
-                
-                # sampling base examples
                 df_ctf = pd.DataFrame([])
+
+                # sampling base examples
+                q_base_settings = q_settings.loc[q_settings['pred'] == base_label]
                 df_ctf['base'] = q_base_settings['profile'].reset_index(drop=True)
                 
                 # sampling source examples
@@ -93,10 +99,8 @@ for value in var_values:
                 .reset_index(drop=True)
 
                 df_ctf['source'] = df_race['profile']
-                
                 df_ctf['base_label'] = base_label
                 df_ctf['src_label'] = src_label
-                
                 all_df_ctf.append(df_ctf)
 
 all_df_ctf = pd.concat(all_df_ctf, axis=0)
@@ -132,7 +136,7 @@ df_ctf_balanced[['base_label','src_label']] = df_ctf_balanced[['base_label','src
 .replace('Yes', format_label('Yes', model_name)) \
 .replace('No', format_label('No', model_name))
 
-# print(df_ctf_balanced)
+df_ctf_balanced = df_ctf_balanced.dropna()
 
 len_df = len(df_ctf_balanced)
 train_frac, dev_frac = train_dev_split
@@ -146,6 +150,13 @@ df_train = df_ctf_balanced[:train_end]
 df_dev = df_ctf_balanced[train_end:dev_end]
 df_test = df_ctf_balanced[dev_end:]
 
-df_train.to_csv(os.path.join(save_path, 'train.csv'), index=False)
-df_dev.to_csv(os.path.join(save_path, 'dev.csv'), index=False)
-df_test.to_csv(os.path.join(save_path, 'test.csv'), index=False)
+if 'hire-dec-eval' in base_path:
+    split_by_role_and_save_csv(df_train, save_path, 'train')
+    split_by_role_and_save_csv(df_dev, save_path, 'dev')
+    split_by_role_and_save_csv(df_test, save_path, 'test')
+
+else:
+    os.makedirs(save_path, exist_ok=True)
+    df_train.to_csv(os.path.join(save_path, 'train.csv'), index=False)
+    df_dev.to_csv(os.path.join(save_path, 'dev.csv'), index=False)
+    df_test.to_csv(os.path.join(save_path, 'test.csv'), index=False)
