@@ -1,5 +1,6 @@
 from typing import Literal
 import random
+import os
 
 import torch
 import numpy as np
@@ -7,6 +8,7 @@ import numpy as np
 import sys
 sys.path.append('../pyvene/')
 from pyvene.models.basic_utils import sigmoid_boundary
+import pyvene as pv
 
 
 HIRE_DEC_NAMES_SETTINGS = {
@@ -275,3 +277,46 @@ def llm_predict(model, tokenizer, device, input_batch,
             skip_special_tokens=True)
             
     return output_preds
+
+
+"""
+Saving a trained alignment.
+"""
+def save_alignment(intervenable, save_path, save_name):
+    key = list(intervenable.interventions.keys())[0]
+    intervention_params = intervenable.interventions[key][0]
+
+    # model_save_path = os.path.join(save_path, 
+    #                                 save_name + '/model.pt')
+    params_save_path = os.path.join(save_path, 
+                                    save_name + '/model_params.pt')
+
+    # os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    os.makedirs(os.path.dirname(params_save_path), exist_ok=True)
+
+    # torch.save(intervenable.state_dict(), model_save_path)
+    torch.save(intervention_params.state_dict(), params_save_path)
+
+
+"""
+Load a trained BoundlessRotatedSpace alignment. Assumes the user is only
+loading in one alignment potentially across multiple layers.
+"""
+def load_alignment(save_path, config, model):
+    # We assume the model is saved with this file name
+    model_params_path = os.path.join(save_path, "model_params.pt")
+
+    intervenable = pv.IntervenableModel(config, model)
+    intervention_params = pv.BoundlessRotatedSpaceIntervention(
+        embed_dim=model.config.hidden_size
+    )
+    intervention_params.load_state_dict(
+        torch.load(model_params_path, weights_only=True)
+    )
+
+    keys = list(intervenable.representations.keys())
+    for key in keys:
+        hook = intervenable.interventions[key][1]
+        intervenable.interventions[key] = (intervention_params, hook)
+    
+    return intervenable
