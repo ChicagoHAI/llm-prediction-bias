@@ -126,14 +126,13 @@ if __name__ == "__main__":
         'test': os.path.join(ds_path, 'test.csv'),
     })
 
-    train_loader = DataLoader(ds['train'].shuffle(seed=42).select(range(500)), batch_size=batch_size)
+    train_loader = DataLoader(ds['train'].shuffle(seed=42), batch_size=batch_size)
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
     test_loader = DataLoader(ds['test'], batch_size=batch_size)
 
     if v_end == -1:
         v_end = llama.config.num_hidden_layers
 
-    # max_seq_len = len(tokenizer(ds['train'][0]['base']).input_ids)
     token_ids = tokenizer(ds['train']['base'][:50], 
                         padding=True, 
                         return_tensors="pt").input_ids
@@ -247,16 +246,12 @@ if __name__ == "__main__":
                         logits = counterfactual_outputs.logits[:, -1]
                         preds = logits.argmax(dim=-1).detach().cpu().numpy()
 
-                        # print(preds)
-
                         all_preds.append(preds)
                         all_labels.append(example['src_label'])
                         
                     all_preds = np.concatenate(all_preds)
                     all_labels = np.concatenate(all_labels)
                     acc = accuracy_score(all_preds, all_labels)
-
-                    # print(all_preds[:20])
 
                     writer.add_scalar('dev accuracy', acc, epoch)
 
