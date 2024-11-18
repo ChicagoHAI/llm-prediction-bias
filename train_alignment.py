@@ -38,6 +38,8 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, 
                         default='sharpbai/alpaca-7b-merged', 
                         help='Name or path of the model')
+    parser.add_argument("--intervention_type", choices=["BDAS", "DAS"], default="BDAS")
+    parser.add_argument("--interchange_dim", type=int)
 
     # Training args
     parser.add_argument("--horizontal_start", type=int, default=0)
@@ -52,6 +54,7 @@ if __name__ == "__main__":
                         help="""The number of steps before {h_pos} to search.""", 
                         default=4, type=int)
 
+    parser.add_argument("--n_train", type=int, default=-1)
     parser.add_argument("--num_epochs", help="""Number of training epochs.""",
                         default=1, type=int)
     parser.add_argument("--batch_size", help="""Training batch size.""",
@@ -72,6 +75,8 @@ if __name__ == "__main__":
 
     ds_path = args.dataset_path
     model_name = args.model_name
+    vene_type = args.intervention_type
+    interchange_dim = args.interchange_dim
 
     """
     Alpaca:
@@ -101,6 +106,7 @@ if __name__ == "__main__":
     v_end = args.vertical_end
     v_step = args.vertical_step
 
+    n_train = args.n_train
     num_epochs = args.num_epochs
     batch_size = args.batch_size
 
@@ -126,17 +132,24 @@ if __name__ == "__main__":
         'test': os.path.join(ds_path, 'test.csv'),
     })
 
-    train_loader = DataLoader(ds['train'].shuffle(seed=42), batch_size=batch_size)
+    if n_train > 0:
+        ds['train'] = ds['train'].shuffle(seed=42).select(range(n_train))
+
+    train_loader = DataLoader(ds['train'], batch_size=batch_size)
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
     test_loader = DataLoader(ds['test'], batch_size=batch_size)
 
     if v_end == -1:
         v_end = llama.config.num_hidden_layers
 
-    token_ids = tokenizer(ds['train']['base'][:50], 
+    token_ids = tokenizer(ds['train']['base'][:100], 
                         padding=True, 
                         return_tensors="pt").input_ids
     max_seq_len = token_ids.shape[1]
+
+    if h_start < 0:
+        h_start = max_seq_len + h_start
+        h_end = max_seq_len + h_end
 
     extra_steps = num_extra_steps * h_step
 
@@ -152,16 +165,32 @@ if __name__ == "__main__":
 
             print(args.save_name)
 
-            config = pv.IntervenableConfig([
-                {
-                    "layer": layer,
-                    "component": 'block_output',
-                    "intervention_type": pv.BoundlessRotatedSpaceIntervention,
-                }
-            ])
-            intervenable = pv.IntervenableModel(config, llama)
-            intervenable.set_device(device)
-            intervenable.disable_model_gradients()
+            if vene_type == "BDAS":
+                config = pv.IntervenableConfig([
+                    {
+                        "layer": layer,
+                        "component": 'block_output',
+                        "intervention_type": pv.BoundlessRotatedSpaceIntervention,
+                    }
+                ])
+                intervenable = pv.IntervenableModel(config, llama)
+                intervenable.set_device(device)
+                intervenable.disable_model_gradients()
+            else:
+                config = pv.IntervenableConfig([
+                    {
+                        "layer": layer,
+                        "component": 'block_output',
+                        "intervention_type": pv.RotatedSpaceIntervention,
+                    }
+                ])
+                intervenable = pv.IntervenableModel(config, llama)
+                key = list(intervenable.interventions.keys())[0]
+                intervenable.interventions[key][0].interchange_dim = torch.tensor(interchange_dim)
+
+                intervenable.set_device(device)
+                intervenable.disable_model_gradients()
+                
 
             # set up optimizer
             total_steps = num_epochs * len(ds['train'])

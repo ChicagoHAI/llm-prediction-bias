@@ -56,23 +56,25 @@ def parse_args():
     parser.add_argument("--alignment_path", 
                         help="""Path to the directory 
                         containing the saved alignment.""")
+    parser.add_argument("--src_alignment_path")
     parser.add_argument("--dataset_path", 
                         help="""Path to the directory containing
                         the counterfactual dataset files.""")
+    parser.add_argument("--interchange_dim", type=int, default=2000)
     parser.add_argument("--base_task",
-                        choices=['Admissions', 'HireDec', 'HireDecEval', 'HireDecNames', 'DiscrimEval', 'RaceQA'],
+                        choices=['Admissions', 'HireDec', 'HireDecEval', 'HireDecNames', 'DiscrimEval', 'RaceQA', 'HiringRaceOffset'],
                         default="Admissions")
 
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--n_test', type=int, default=-1)
     parser.add_argument('--generate', action='store_true')
 
-    parser.add_argument('--source_reduction', type=str, 
-                        choices=["selection", "mean", "zero-ablation"], 
-                        default="selection")
+    # parser.add_argument('--source_reduction', type=str, 
+    #                     choices=["selection", "mean", "zero-ablation"], 
+    #                     default="selection")
     
     parser.add_argument('--method', 
-                        choices=["das", "probing", "random"], default="das")
+                        choices=["bdas", "das", "intinv", "probing", "random"], default="bdas")
 
     parser.add_argument('--collect_layer', type=int, default=2, 
                         help='Layer to collect activations from. This option only applies to DAS.')
@@ -89,9 +91,9 @@ def parse_args():
                         help='Type of patch tokens')
     parser.add_argument('--patch_token_positions', nargs='+', type=int)
     
-    parser.add_argument('--concept_subspace', type=str, 
-                        choices=["naive", "aligned"], default="aligned", 
-                        help='Concept direction for intervention')
+    # parser.add_argument('--concept_subspace', type=str, 
+    #                     choices=["naive", "aligned", "custom"], default="aligned", 
+    #                     help='Concept direction for intervention')
 
     parser.add_argument("--save_path", default="./", help="Path to the save directory")
 
@@ -103,25 +105,27 @@ args = parse_args()
 
 bs = args.batch_size
 n_test = args.n_test
-src_reduce = args.source_reduction
+# src_reduce = args.source_reduction
 generate = args.generate
 
 method = args.method
+interchange_dim = args.interchange_dim
 collect_layer = args.collect_layer
 collect_token = args.collect_token
 
 patch_layers = range(args.patch_start, args.patch_end+1)
 patch_tokens = args.patch_tokens
 patch_token_positions = args.patch_token_positions
-concept_subspace = args.concept_subspace
+# concept_subspace = args.concept_subspace
 
 ds_path = args.dataset_path
 base_task = args.base_task
 align_path = args.alignment_path
+src_align_path = args.src_alignment_path
 save_path = args.save_path
 
 model_name = args.model_name
-device = 'cuda'
+device = 'cuda:1'
 
 os.makedirs(save_path, exist_ok=True)
 
@@ -149,7 +153,7 @@ test_loader = DataLoader(ds, batch_size=bs)
 # unfortunately, they are very prompt and tokenizer-specific
 # has to account for different lengths of names and roles
 model_name_lower = model_name.lower()
-if method == 'das':
+if method == 'das' or method == 'bdas':
     if 'alpaca' in model_name_lower:
         if base_task == 'Admissions':
             dist_to_patch = 16
@@ -160,7 +164,6 @@ if method == 'das':
         elif base_task == 'HireDecEval':
             dist_to_patch = 18
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
-            # patches = (dist_to_patch + np.arange(0, 7)).tolist()
         elif base_task == 'HireDecNames':
             dist_to_patch = 17
             patches = (dist_to_patch + np.arange(0, 4)).tolist()
@@ -169,6 +172,13 @@ if method == 'das':
         elif base_task == 'RaceQA':
             dist_to_patch = 15
             patches = (dist_to_patch + np.arange(0, 4)).tolist()
+        elif base_task == 'HiringRaceOffset':
+            token_ids = tokenizer(ds['base'][:100], 
+                                padding=True, 
+                                return_tensors="pt").input_ids
+            max_seq_len = token_ids.shape[1]
+            dist_to_patch = max_seq_len - 37
+            patches = (dist_to_patch + np.arange(0, 1)).tolist()
 
     elif 'mistral' in model_name_lower:
         if base_task == 'Admissions':
@@ -180,7 +190,6 @@ if method == 'das':
         elif base_task == 'HireDecEval':
             dist_to_patch = 18
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
-            # patches = (dist_to_patch + np.arange(0, 6)).tolist()
         elif base_task == 'HireDecNames':
             dist_to_patch = 17
             patches = (dist_to_patch + np.arange(0, 4)).tolist()
@@ -198,7 +207,6 @@ if method == 'das':
         elif base_task == 'HireDecEval':
             dist_to_patch = 15
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
-            # patches = (dist_to_patch + np.arange(0, 4)).tolist()
         elif base_task == 'HireDecNames':
             dist_to_patch = 15
             patches = (dist_to_patch + np.arange(0, 5)).tolist()
@@ -278,7 +286,7 @@ elif method == 'probing':
         save_path += f"_{layer}.{token}"
     os.makedirs(save_path, exist_ok=True)
 
-    concept_subspace = 'naive' # overwriting
+    # concept_subspace = 'naive' # overwriting
 
 elif method == 'random':
     num_pos = 5
@@ -301,19 +309,10 @@ elif method == 'random':
 
     base_token_pos = patch_token_positions
     src_token_pos = patch_token_positions
-    concept_subspace = 'naive'
+    # concept_subspace = 'naive'
 
 
 # Intervenable for activation collection
-# config_collect = pv.IntervenableConfig(
-#     [{
-#         "layer": layer,
-#         "component": "block_output",
-#         "intervention_type": pv.CollectIntervention
-#     }
-#         for layer in collect_layers
-#     ],
-# )
 config_collect = pv.IntervenableConfig(
     [{
         "layer": collect_layer,
@@ -325,67 +324,71 @@ vene_collect = pv.IntervenableModel(config_collect, llama)
 vene_collect.set_device(device)
 vene_collect.disable_model_gradients()
 
-# Rotated interchange intervention
-config_bdas = pv.IntervenableConfig(
-    [{
-        "layer": layer,
-        "component": "block_output",
-        "intervention_type": pv.BoundlessRotatedSpaceIntervention,
-    }
-        for layer in patch_layers
-    ],
-)
-vene_bdas = load_alignment(align_path, config_bdas, llama)
-vene_bdas.set_device(device)
-vene_bdas.disable_model_gradients()
-intervention, _, _ = get_bdas_params(vene_bdas)
+if args.method == "bdas":
+    # Boundless rotated interchange intervention
+    config_bdas = pv.IntervenableConfig(
+        [{
+            "layer": layer,
+            "component": "block_output",
+            "intervention_type": pv.BoundlessRotatedSpaceIntervention,
+        }
+            for layer in patch_layers
+        ],
+    )
+    vene_bdas = load_alignment(align_path, config_bdas, llama, 
+                            src_save_path=src_align_path)
+    vene_bdas.set_device(device)
+    vene_bdas.disable_model_gradients()
 
-# Vanilla interchange intervention
-config_intinv = pv.IntervenableConfig(
-    [{
-        "layer": layer,
-        "component": "block_output",
-        "intervention_type": pv.VanillaIntervention,
-    }
-        for layer in patch_layers
-    ],
-)
-vene_intinv = pv.IntervenableModel(config_intinv, llama)
-vene_intinv.set_device(device)
-vene_intinv.disable_model_gradients()
-
-
-# if src_reduce == "mean":
-#     all_src_acts = []
-#     for batch in tqdm(test_loader, desc="Processing source inputs"):
-#         batch_tokens = tokenizer(batch['source'], 
-#                                 return_tensors="pt", 
-#                                 padding=True).to(device)
-        
-#         intervenable_out = vene_collect(
-#             batch_tokens,                                 
-#             unit_locations={"base": collect_tokens},       
-#         )
-#         # intervenable_out is ((_, activations), _)
-#         src_activations = intervenable_out[0][1]
-#         src_activations = torch.concatenate(src_activations)
-#         all_src_acts.append(src_activations)
-
-#     all_src_acts = torch.concatenate(all_src_acts)
-#     assert all_src_acts.shape == (len(ds['base']), llama.config.hidden_size)
-
-#     src_rep = all_src_acts.mean(dim=0)
-
-# elif src_reduce == "zero-ablation":
-#     src_rep = torch.zeros(llama.config.hidden_size)
-
-
-if concept_subspace == "naive":
-    vene = vene_intinv
-    print("Using vanilla interchange!")
-elif concept_subspace == "aligned":
     vene = vene_bdas
     print("Using boundless DAS!")
+
+elif args.method == "das":
+    # Vanilla DAS
+    config_das = pv.IntervenableConfig([
+        {
+            "layer": patch_layers[0],
+            "component": 'block_output',
+            "intervention_type": pv.RotatedSpaceIntervention,
+        }
+    ])
+    vene_das = load_alignment(align_path, config_das, llama,
+                              src_save_path=src_align_path, 
+                              alignment_type=pv.RotatedSpaceIntervention)
+    vene_das.set_device(device)
+    vene_das.disable_model_gradients()
+
+    vene = vene_das
+    print("Using vanilla DAS!")
+
+else:
+    # Vanilla interchange intervention
+    config_intinv = pv.IntervenableConfig(
+        [{
+            "layer": layer,
+            "component": "block_output",
+            "intervention_type": pv.VanillaIntervention,
+        }
+            for layer in patch_layers
+        ],
+    )
+    vene_intinv = pv.IntervenableModel(config_intinv, llama)
+    vene_intinv.set_device(device)
+    vene_intinv.disable_model_gradients()
+
+    vene = vene_intinv
+    print("Using vanilla interchange!")
+
+# breakpoint()
+
+# if concept_subspace == "naive":
+#     vene = vene_intinv
+#     print("Using vanilla interchange!")
+# elif concept_subspace == "aligned":
+#     vene = vene_bdas
+#     print("Using boundless DAS!")
+# elif concept_subspace == "custom":
+#     vene = vene_das
 
 all_base_preds = []
 all_ctf_preds = []
@@ -403,7 +406,7 @@ with torch.no_grad():
         bs = base_tokens['input_ids'].shape[0]
         seq_len = base_tokens['input_ids'].shape[1]
 
-        if args.method == 'das':
+        if args.method in ["bdas", "das", "intinv"]:
             # default patch is "precise"
             if patch_tokens == 'custom':
                 if patch_token_positions == None:
@@ -415,6 +418,9 @@ with torch.no_grad():
                 patches = random.sample(range(0, seq_len), 5)
 
             num_pos = len(patches)
+            if collect_token < 0:
+                collect_token = src_tokens.input_ids.shape[1] + collect_token
+                breakpoint()
 
             intervenable_out = vene_collect(
                 src_tokens,                                 

@@ -23,6 +23,7 @@ def split_by_role_and_save_csv(df, save_path, data_split='test'):
         os.makedirs(save_path_role, exist_ok=True)
         
         df_role = df.loc[df['role'] == role]
+        print(f"role: {role}, size: {len(df_role)}")
         df_role.to_csv(
             os.path.join(save_path_role, f"{data_split}.csv"), index=False
         )
@@ -56,8 +57,9 @@ if causal_var == 'race':
     var_name = 'race'
     var_func = race_to_race
 elif causal_var == 'race_given_name':
-    var_name = 'race'
-    var_func = name_to_race
+    # var_name = 'race'
+    # var_func = name_to_race
+    pass
 
 df_base = pd.read_csv(base_path)
 df_src = pd.read_csv(src_path)
@@ -112,9 +114,9 @@ for base_label in labels:
             (all_df_ctf['base_label'] == base_label) & 
             (all_df_ctf['src_label'] == src_label)
         ]
+        print(f"{base_label} {src_label}: {len(base_src)}")
         ctf_behavior_counts.append(len(base_src))
 
-# n_samples = min(ctf_behavior_counts)
 nonzero_counts = [count for count in ctf_behavior_counts if count != 0]
 n_samples = min(nonzero_counts)
 

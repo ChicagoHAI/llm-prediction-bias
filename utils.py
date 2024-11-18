@@ -233,23 +233,31 @@ def format_prompt(template, candidate,
 Given an Intervenable object with BDAS intervention, 
 return its rotation matrix and boundary masks
 """
-def get_bdas_params(intervenable):
-    key = list(intervenable.interventions.keys())[0]
-    intervention = intervenable.interventions[key][0]
-    rotate_layer = intervention.rotate_layer
-    Q = rotate_layer.parametrizations.weight.original
-    
-    intervention_boundaries = intervention.intervention_boundaries
-    intervention_boundaries = torch.clamp(intervention_boundaries, 1e-3, 1)
-    
-    boundary_mask = sigmoid_boundary(
-        intervention.intervention_population, 
-        0.,
-        intervention_boundaries[0] * 4096,
-        intervention.temperature
+def get_bdas_params(align_path, model_config):
+    intervention_params = pv.BoundlessRotatedSpaceIntervention(
+        embed_dim=model_config.hidden_size
+    )
+    intervention_params.load_state_dict(
+        torch.load(align_path, weights_only=True)
     )
     
-    return intervention, Q, boundary_mask
+    rotate_layer = intervention_params.rotate_layer
+    Q = rotate_layer.weight
+
+    intervention_boundaries = intervention_params.intervention_boundaries
+    intervention_boundaries = torch.clamp(intervention_boundaries, 1e-3, 1)
+
+    intervention_population = intervention_params.intervention_population
+    temperature = intervention_params.temperature
+
+    boundary_mask = sigmoid_boundary(
+        intervention_population, 
+        0.,
+        intervention_boundaries[0] * model_config.hidden_size,
+        temperature
+    ).round()
+    
+    return intervention_params, Q, boundary_mask
 
 
 """
@@ -285,16 +293,9 @@ Saving a trained alignment.
 def save_alignment(intervenable, save_path, save_name):
     key = list(intervenable.interventions.keys())[0]
     intervention_params = intervenable.interventions[key][0]
-
-    # model_save_path = os.path.join(save_path, 
-    #                                 save_name + '/model.pt')
     params_save_path = os.path.join(save_path, 
                                     save_name + '/model_params.pt')
-
-    # os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
     os.makedirs(os.path.dirname(params_save_path), exist_ok=True)
-
-    # torch.save(intervenable.state_dict(), model_save_path)
     torch.save(intervention_params.state_dict(), params_save_path)
 
 
@@ -302,17 +303,28 @@ def save_alignment(intervenable, save_path, save_name):
 Load a trained BoundlessRotatedSpace alignment. Assumes the user is only
 loading in one alignment potentially across multiple layers.
 """
-def load_alignment(save_path, config, model):
+def load_alignment(save_path, config, model, src_save_path=None,
+                   alignment_type=pv.BoundlessRotatedSpaceIntervention):
     # We assume the model is saved with this file name
     model_params_path = os.path.join(save_path, "model_params.pt")
-
     intervenable = pv.IntervenableModel(config, model)
-    intervention_params = pv.BoundlessRotatedSpaceIntervention(
+    intervention_params = alignment_type(
         embed_dim=model.config.hidden_size
     )
     intervention_params.load_state_dict(
         torch.load(model_params_path, weights_only=True)
     )
+
+    if src_save_path != None:
+        src_params_path = os.path.join(src_save_path, "model_params.pt")
+        src_intervention_params = alignment_type(
+            embed_dim=model.config.hidden_size
+        )
+        src_intervention_params.load_state_dict(
+            torch.load(src_params_path, weights_only=True)
+        )
+        src_rotate = src_intervention_params.rotate_layer
+        intervention_params.set_src_rotate_layer(src_rotate)
 
     keys = list(intervenable.representations.keys())
     for key in keys:
