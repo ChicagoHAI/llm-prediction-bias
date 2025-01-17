@@ -22,30 +22,6 @@ import pyvene as pv
 from utils import get_bdas_params, load_alignment
 
 
-# """
-# Load a trained BoundlessRotatedSpace alignment. Assumes the user is only
-# loading in one alignment potentially across multiple layers.
-# """
-# def load_alignment(save_path, config, model):
-#     # We assume the model is saved with these two files
-#     model_path = os.path.join(save_path, "model.pt")
-#     model_params_path = os.path.join(save_path, "model_params.pt")
-
-#     intervenable = pv.IntervenableModel(config, model)
-#     intervenable.load_state_dict(torch.load(model_path))
-#     intervention_params = pv.BoundlessRotatedSpaceIntervention(
-#         embed_dim=model.config.hidden_size
-#     )
-#     intervention_params.load_state_dict(torch.load(model_params_path))
-
-#     keys = list(intervenable.representations.keys())
-#     for key in keys:
-#         hook = intervenable.interventions[key][1]
-#         intervenable.interventions[key] = (intervention_params, hook)
-    
-#     return intervenable
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Process input arguments for cross-task intervention on HireDec.")
@@ -62,7 +38,7 @@ def parse_args():
                         the counterfactual dataset files.""")
     parser.add_argument("--interchange_dim", type=int, default=2000)
     parser.add_argument("--base_task",
-                        choices=['Admissions', 'HireDec', 'HireDecEval', 'HireDecNames', 'DiscrimEval', 'RaceQA', 'HiringRaceOffset'],
+                        choices=['Admissions', 'HireDec', 'Hiring', 'HireDecNames', 'DiscrimEval', 'RaceQA', 'HiringRaceOffset'],
                         default="Admissions")
 
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
@@ -75,11 +51,13 @@ def parse_args():
     
     parser.add_argument('--method', 
                         choices=["bdas", "das", "intinv", "probing", "random"], default="bdas")
+    parser.add_argument('--intervention', choices=['interchange', 'debias-avg', 'zero-ablate', 'noising'], default='interchange')
 
     parser.add_argument('--collect_layer', type=int, default=2, 
                         help='Layer to collect activations from. This option only applies to DAS.')
     parser.add_argument('--collect_token', type=int, default=17, 
                         help='Position to collect activations from. This option only applies to DAS.')
+    parser.add_argument("--use_right_padding", action='store_true')
 
     parser.add_argument('--patch_start', type=int, default=2, 
                         help='Start of patch layers range')
@@ -109,9 +87,11 @@ n_test = args.n_test
 generate = args.generate
 
 method = args.method
+intervention = args.intervention
 interchange_dim = args.interchange_dim
 collect_layer = args.collect_layer
 collect_token = args.collect_token
+use_right_padding = args.use_right_padding # for when race position is varied
 
 patch_layers = range(args.patch_start, args.patch_end+1)
 patch_tokens = args.patch_tokens
@@ -127,7 +107,7 @@ save_path = args.save_path
 model_name = args.model_name
 device = 'cuda:1'
 
-os.makedirs(save_path, exist_ok=True)
+# os.makedirs(save_path, exist_ok=True)
 
 config = AutoConfig.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -142,9 +122,15 @@ llama = AutoModelForCausalLM.from_pretrained(
 _ = llama.to(device)
 _ = llama.eval()
 
+# df = pd.read_csv(os.path.join(ds_path, 'test.csv'))
 df = pd.read_csv(os.path.join(ds_path, 'test.csv'))
-if n_test != -1:
-    df = df.sample(n_test, replace=True)
+if n_test > 0:
+    subset_size = n_test // 2
+    df1 = df.loc[df['base_label'] == df['src_label']].sample(subset_size, replace=True)
+    df2 = df.loc[df['base_label'] != df['src_label']].sample(subset_size, replace=True)
+    
+    # df = df.sample(n_test, replace=True)
+    df = pd.concat([df1, df2])
 
 ds = Dataset.from_pandas(df)
 test_loader = DataLoader(ds, batch_size=bs)
@@ -153,7 +139,7 @@ test_loader = DataLoader(ds, batch_size=bs)
 # unfortunately, they are very prompt and tokenizer-specific
 # has to account for different lengths of names and roles
 model_name_lower = model_name.lower()
-if method == 'das' or method == 'bdas':
+if method in ['das', 'bdas', 'intinv', 'zero-ablate']:
     if 'alpaca' in model_name_lower:
         if base_task == 'Admissions':
             dist_to_patch = 16
@@ -161,9 +147,9 @@ if method == 'das' or method == 'bdas':
         elif base_task == 'HireDec':
             dist_to_patch = 18
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
-        elif base_task == 'HireDecEval':
+        elif base_task == 'Hiring':
             dist_to_patch = 18
-            patches = (dist_to_patch + np.arange(0, 3)).tolist()
+            patches = (dist_to_patch + np.arange(0, 4)).tolist()
         elif base_task == 'HireDecNames':
             dist_to_patch = 17
             patches = (dist_to_patch + np.arange(0, 4)).tolist()
@@ -187,7 +173,7 @@ if method == 'das' or method == 'bdas':
         elif base_task == 'HireDec':
             dist_to_patch = 40
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
-        elif base_task == 'HireDecEval':
+        elif base_task == 'Hiring':
             dist_to_patch = 18
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
         elif base_task == 'HireDecNames':
@@ -196,6 +182,13 @@ if method == 'das' or method == 'bdas':
         elif base_task == 'RaceQA':
             dist_to_patch = 15
             patches = (dist_to_patch + np.arange(0, 4)).tolist()
+        elif base_task == 'HiringRaceOffset':
+            token_ids = tokenizer(ds['base'][:100], 
+                                padding=True, 
+                                return_tensors="pt").input_ids
+            max_seq_len = token_ids.shape[1]
+            dist_to_patch = max_seq_len - 40
+            patches = (dist_to_patch + np.arange(0, 3)).tolist()
 
     elif 'gemma' in model_name_lower:
         if base_task == 'Admissions':
@@ -204,7 +197,7 @@ if method == 'das' or method == 'bdas':
         elif base_task == 'HireDec':
             dist_to_patch = 14
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
-        elif base_task == 'HireDecEval':
+        elif base_task == 'Hiring':
             dist_to_patch = 15
             patches = (dist_to_patch + np.arange(0, 3)).tolist()
         elif base_task == 'HireDecNames':
@@ -216,19 +209,37 @@ if method == 'das' or method == 'bdas':
 
 elif method == 'probing':
     num_pos = 5
+
+    if 'llama-3' in model_name_lower:
+        if base_task == 'Admissions':
+            layer_start = 22
+            layer_end = 30
+            h_range = 7
+            src_token_start = collect_token
+            base_token_start = patch_token_positions[0]
+            src_token_end = src_token_start + h_range
+            base_token_end = base_token_start + h_range
+        elif base_task == 'Hiring':
+            layer_start = 18
+            layer_end = 28
+            h_range = 7
+            src_token_start = collect_token
+            base_token_start = patch_token_positions[0]
+            src_token_end = src_token_start + h_range
+            base_token_end = base_token_start + h_range
     
     if 'alpaca' in model_name_lower:
         if base_task == 'Admissions':
             # places to collect activations
             # base and source layers must be the same
             layer_start = 4
-            layer_end = 16
-            src_token_start = 17
-            src_token_end = 29
+            layer_end = 14
+            src_token_start = 62
+            src_token_end = 71
             base_token_start = src_token_start
             base_token_end = src_token_end
 
-        elif base_task == 'HireDecEval':
+        elif base_task == 'Hiring':
             layer_start = 8 # interventions work in the same layers
             layer_end = 16
             src_token_start = 17
@@ -238,14 +249,14 @@ elif method == 'probing':
 
     elif 'mistral' in model_name_lower:
         if base_task == 'Admissions':
-            layer_start = 6
-            layer_end = 30
-            src_token_start = 43
-            src_token_end = 55
+            layer_start = 18
+            layer_end = 26
+            src_token_start = 96
+            src_token_end = 101
             base_token_start = src_token_start
             base_token_end = src_token_end
 
-        elif base_task == 'HireDecEval':
+        elif base_task == 'Hiring':
             layer_start = 16
             layer_end = 20
             src_token_start = 43
@@ -254,21 +265,13 @@ elif method == 'probing':
             base_token_end = 24
 
     elif 'gemma' in model_name_lower:
-        if base_task == 'Admissions':
-            layer_start = 6
-            layer_end = 16
-            src_token_start = 14
-            src_token_end = 24
-            base_token_start = src_token_start
-            base_token_end = src_token_end
-
-        elif base_task == 'HireDecEval':
-            layer_start = 6
-            layer_end = 12
-            src_token_start = 14
-            src_token_end = 24
-            base_token_start = 10
-            base_token_end = 10
+        layer_start = 2
+        layer_end = 16
+        h_range = 3
+        src_token_start = collect_token
+        base_token_start = patch_token_positions[0]
+        src_token_end = src_token_start + h_range
+        base_token_end = base_token_start + h_range
             
     patch_layers = random.choices(
         range(layer_start, layer_end+1), k=num_pos
@@ -280,37 +283,50 @@ elif method == 'probing':
     src_token_pos = random.choices(
         range(src_token_start, src_token_end+1), k=num_pos
     )
+    # src_token_pos = base_token_pos
 
-    for layer, token in zip(patch_layers, base_token_pos):
+    save_path += "_collect"
+    for layer, token in zip(patch_layers, src_token_pos):
         print(f"Collect position: {layer}.{token}")
         save_path += f"_{layer}.{token}"
-    os.makedirs(save_path, exist_ok=True)
 
-    # concept_subspace = 'naive' # overwriting
+    save_path += "_patch"
+    for layer, token in zip(patch_layers, base_token_pos):
+        print(f"Patch position: {layer}.{token}")
+        save_path += f"_{layer}.{token}"
+
 
 elif method == 'random':
     num_pos = 5
     layer_start = 0
     layer_end = config.num_hidden_layers
 
-    max_seq_len = tokenizer(
+    max_base_len = tokenizer(
         ds['base'][:100], padding=True, return_tensors="pt"
+    ).input_ids.shape[1]
+
+    max_src_len = tokenizer(
+        ds['source'][:100], padding=True, return_tensors="pt"
     ).input_ids.shape[1]
 
     patch_layers = random.sample(
         range(layer_start, layer_end), num_pos
     )
-    patch_token_positions = random.sample(range(0, max_seq_len), num_pos)
 
-    for layer, token in zip(patch_layers, patch_token_positions):
+    base_token_pos = random.sample(range(0, max_base_len), num_pos)
+    src_token_pos = random.sample(range(0, max_src_len), num_pos)
+
+    for layer, token in zip(patch_layers, src_token_pos):
         print(f"Collect position: {layer}.{token}")
-        save_path += f"_{layer}.{token}"
-    os.makedirs(save_path, exist_ok=True)
+        # save_path += f"_{layer}.{token}"
 
-    base_token_pos = patch_token_positions
-    src_token_pos = patch_token_positions
-    # concept_subspace = 'naive'
+    for layer, token in zip(patch_layers, base_token_pos):
+        print(f"Patch position: {layer}.{token}")
 
+    # base_token_pos = patch_token_positions
+    # src_token_pos = patch_token_positions
+
+os.makedirs(save_path, exist_ok=True)
 
 # Intervenable for activation collection
 config_collect = pv.IntervenableConfig(
@@ -379,66 +395,139 @@ else:
     vene = vene_intinv
     print("Using vanilla interchange!")
 
-# breakpoint()
-
-# if concept_subspace == "naive":
-#     vene = vene_intinv
-#     print("Using vanilla interchange!")
-# elif concept_subspace == "aligned":
-#     vene = vene_bdas
-#     print("Using boundless DAS!")
-# elif concept_subspace == "custom":
-#     vene = vene_das
-
 all_base_preds = []
 all_ctf_preds = []
 
 with torch.no_grad():
     for batch in tqdm(test_loader, desc="Intervening"):
-        base_prompts = batch['base']
-        base_tokens = tokenizer(base_prompts, 
+        base_tokens = tokenizer(batch['base'], 
                                 return_tensors='pt', 
                                 padding=True).to(device)
-        src_tokens = tokenizer(batch['source'], 
-                               return_tensors='pt', 
-                               padding=True).to(device)
+        
+        if use_right_padding:
+            tokenizer.padding_side = 'right'
+            src_tokens = tokenizer(batch['source'], 
+                                return_tensors='pt', 
+                                padding=True).to(device)
+            tokenizer.padding_side = 'left'
+        else:
+            src_tokens = tokenizer(batch['source'], 
+                                return_tensors='pt', 
+                                padding=True).to(device)
         
         bs = base_tokens['input_ids'].shape[0]
         seq_len = base_tokens['input_ids'].shape[1]
 
-        if args.method in ["bdas", "das", "intinv"]:
-            # default patch is "precise"
-            if patch_tokens == 'custom':
-                if patch_token_positions == None:
-                    raise ValueError("Token positions must be specified for \"custom\" patch ")
-                patches = patch_token_positions
-            elif patch_tokens == 'naive':
-                patches = np.arange(0, seq_len).tolist()
-            elif patch_tokens == 'random':
-                patches = random.sample(range(0, seq_len), 5)
+        base = base_tokens.input_ids
+        src = src_tokens.input_ids
 
-            num_pos = len(patches)
-            if collect_token < 0:
-                collect_token = src_tokens.input_ids.shape[1] + collect_token
-                breakpoint()
+        # breakpoint()
 
-            intervenable_out = vene_collect(
-                src_tokens,                                 
-                unit_locations={"base": collect_token},
-            )
-            # intervenable_out is ((_, activations), _)
-            activations = intervenable_out[0][1] 
-            activations = torch.concatenate(activations)
+        if patch_tokens == 'custom':
+            if patch_token_positions == None:
+                raise ValueError("Token positions must be specified for \"custom\" patch ")
+            patches = patch_token_positions
+        elif patch_tokens == 'naive':
+            patches = np.arange(0, seq_len).tolist()
+        elif patch_tokens == 'random':
+            patches = random.sample(range(0, seq_len), 5)
 
-            src_activations = activations.unsqueeze(1)
-            src_activations = src_activations.expand(-1, num_pos, -1)
+        num_pos = len(patches)
+
+        if patches[0] < 0:
+            patches_ = list(base.shape[1] + np.array(patches))
+        else:
+            patches_ = patches
+
+        if intervention == 'interchange':
+            if args.method in ["bdas", "das", "intinv"]:
+                if collect_token < 0:
+                    collect_token_ = src.shape[1] + collect_token
+                else:
+                    collect_token_ = collect_token
+                
+                intervenable_out = vene_collect(
+                    src_tokens,                                 
+                    unit_locations={"base": collect_token_},
+                )
+                # intervenable_out is ((_, activations), _)
+                activations = intervenable_out[0][1] 
+                activations = torch.concatenate(activations)
+
+                src_activations = activations.unsqueeze(1)
+                src_activations = src_activations.expand(-1, num_pos, -1)
+
+                # breakpoint()
+
+                if not generate:
+                    base_outputs, ctf_outputs = vene(
+                        base_tokens,
+                        source_representations = src_activations, # (bs, num_pos, hidden)
+                        output_original_output = True,
+                        unit_locations = {"sources->base": patches_},
+                    )
+
+                    base_logits = base_outputs.logits[:, -1]
+                    ctf_logits = ctf_outputs.logits[:, -1]
+
+                    base_preds = base_logits.argmax(dim=-1).cpu().tolist()
+                    ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
+                else:
+                    base_outputs, ctf_outputs = vene.generate(
+                        base_tokens,
+                        source_representations = src_activations,
+                        max_length = seq_len + 10,
+                        output_original_output = True,
+                        intervene_on_prompt = True,
+                        unit_locations = {"base": patches},
+                    )
+
+                    base_outputs = base_outputs[:, seq_len:]
+                    ctf_outputs = ctf_outputs[:, seq_len:]
+
+                    base_preds = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
+                    ctf_preds = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
+
+                    base_preds = [pred.strip() for pred in base_preds]
+                    ctf_preds = [pred.strip() for pred in ctf_preds]
+
+            elif args.method == 'probing' or args.method == 'random':
+                # breakpoint()
+                if base_token_pos[0] < 0:
+                    base_token_pos = list(base.shape[1] + np.array(base_token_pos))
+                if src_token_pos[0] < 0:
+                    src_token_pos = list(src.shape[1] + np.array(src_token_pos))
+
+                base_patches = [[[pos]] * bs for pos in base_token_pos]
+                src_patches = [[[pos]] * bs for pos in src_token_pos]
+
+                if generate:
+                    raise NotImplementedError("Generation for probing and random interventions is not supported yet.")
+                else:
+                    base_outputs, ctf_outputs = vene(
+                        base_tokens,
+                        src_tokens,
+                        output_original_output = True,
+                        unit_locations = {
+                            "sources->base": (src_patches, base_patches)
+                        },
+                    )
+
+                    base_logits = base_outputs.logits[:, -1]
+                    ctf_logits = ctf_outputs.logits[:, -1]
+
+                    base_preds = base_logits.argmax(dim=-1).cpu().tolist()
+                    ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
+
+        elif intervention == 'zero-ablate':
+            src_activations = torch.zeros(bs, num_pos, config.hidden_size).to(device)
 
             if not generate:
                 base_outputs, ctf_outputs = vene(
                     base_tokens,
                     source_representations = src_activations, # (bs, num_pos, hidden)
                     output_original_output = True,
-                    unit_locations = {"sources->base": patches},
+                    unit_locations = {"sources->base": patches_},
                 )
 
                 base_logits = base_outputs.logits[:, -1]
@@ -447,39 +536,35 @@ with torch.no_grad():
                 base_preds = base_logits.argmax(dim=-1).cpu().tolist()
                 ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
             else:
-                base_outputs, ctf_outputs = vene.generate(
-                    base_tokens,
-                    source_representations = src_activations,
-                    max_length = seq_len + 10,
-                    output_original_output = True,
-                    intervene_on_prompt = True,
-                    unit_locations = {"base": patches},
-                )
-
-                base_outputs = base_outputs[:, seq_len:]
-                ctf_outputs = ctf_outputs[:, seq_len:]
-
-                base_preds = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
-                ctf_preds = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
-
-                base_preds = [pred.strip() for pred in base_preds]
-                ctf_preds = [pred.strip() for pred in ctf_preds]
-
-        elif args.method == 'probing' or args.method == 'random':
-            base_patches = [[[pos]] * bs for pos in base_token_pos]
-            src_patches = [[[pos]] * bs for pos in src_token_pos]
-
-            if generate:
-                print("Generation for probing and random interventions is not supported yet.")
-                pass
+                raise NotImplementedError("Generation for zero ablation is not supported yet.")
+            
+        elif intervention == 'debias-avg':
+            if collect_token < 0:
+                collect_token_ = base.shape[1] + collect_token
             else:
+                collect_token_ = collect_token
+
+            intervenable_out = vene_collect(
+                base_tokens,                                 
+                unit_locations={"base": collect_token_},
+            )
+            # intervenable_out is ((_, activations), _)
+            activations = intervenable_out[0][1] 
+            activations = torch.concatenate(activations)
+
+            # src_activations = activations.unsqueeze(1)
+            # src_activations = src_activations.expand(-1, num_pos, -1)
+            acts_mean = activations.mean(dim=1).reshape(bs, 1, 1)
+            src_activations = acts_mean.expand(-1, num_pos, config.hidden_size)
+
+            # breakpoint()
+
+            if not generate:
                 base_outputs, ctf_outputs = vene(
                     base_tokens,
-                    src_tokens,
+                    source_representations = src_activations, # (bs, num_pos, hidden)
                     output_original_output = True,
-                    unit_locations = {
-                        "sources->base": (src_patches, base_patches)
-                    },
+                    unit_locations = {"sources->base": patches_},
                 )
 
                 base_logits = base_outputs.logits[:, -1]
@@ -487,91 +572,51 @@ with torch.no_grad():
 
                 base_preds = base_logits.argmax(dim=-1).cpu().tolist()
                 ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
+            else:
+                raise NotImplementedError("Generation for zero ablation is not supported yet.")
+            
+        elif intervention == 'noising':
+            eps = 4
+            if collect_token < 0:
+                collect_token_ = base.shape[1] + collect_token
+            else:
+                collect_token_ = collect_token
+
+            intervenable_out = vene_collect(
+                base_tokens,                                 
+                unit_locations={"base": collect_token_},
+            )
+            # intervenable_out is ((_, activations), _)
+            activations = intervenable_out[0][1] 
+            activations = torch.concatenate(activations).unsqueeze(1)
+            acts_std = torch.std(activations)
+
+            src_activations = activations.expand(-1, num_pos, -1)
+            noise = torch.normal(mean=0, std=eps*acts_std, 
+                                 size=src_activations.shape).to(device)
+
+            src_activations = (src_activations + noise)
+
+            # breakpoint()
+
+            if not generate:
+                base_outputs, ctf_outputs = vene(
+                    base_tokens,
+                    source_representations = src_activations, # (bs, num_pos, hidden)
+                    output_original_output = True,
+                    unit_locations = {"sources->base": patches_},
+                )
+
+                base_logits = base_outputs.logits[:, -1]
+                ctf_logits = ctf_outputs.logits[:, -1]
+
+                base_preds = base_logits.argmax(dim=-1).cpu().tolist()
+                ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
+            else:
+                raise NotImplementedError("Generation with noising is not supported yet.")
 
         all_base_preds += base_preds
         all_ctf_preds += ctf_preds
-
-        # # default patch is "precise"
-        # if patch_tokens == 'custom':
-        #     if patch_token_positions == None:
-        #         raise ValueError("Token positions must be specified for \"custom\" patch ")
-        #     else:
-        #         patches = patch_token_positions
-        # elif patch_tokens == 'naive':
-        #     patches = np.arange(0, seq_len).tolist()
-        # elif patch_tokens == 'random':
-        #     patches = np.random.randint(0, seq_len, 5).tolist()
-
-        # num_pos = len(patches)
-
-        # if src_reduce == "selection":
-        #     src_tokens = tokenizer(batch['source'], 
-        #                            return_tensors='pt', 
-        #                            padding=True).to(device)
-
-        #     intervenable_out = vene_collect(
-        #         src_tokens,                                 
-        #         unit_locations={"base": collect_tokens},          
-        #     )
-        #     # intervenable_out is ((_, activations), _)
-        #     activations = intervenable_out[0][1]
-        #     activations = torch.concatenate(activations)
-
-        #     if args.method == 'das':
-        #         src_activations = activations.unsqueeze(1)
-        #         src_activations = activations.expand(-1, num_pos, -1)
-        #     else:
-        #         # src_activations = activations.reshape(
-        #         #     bs, num_pos, -1
-        #         # )
-        #         src_activations = activations.reshape(
-        #             num_pos, bs, 1, -1
-        #         )
-        #         src_activations = einops.rearrange(
-        #             src_activations, 
-        #             'num_int bs num_pos hidden -> bs num_int num_pos hidden'
-        #         ) # num_pos = num_int for random-layer interventions
-        # else:
-        #     src_activations = (
-        #         src_rep.reshape(1, 1, -1)
-        #         .expand(len(base_prompts), num_pos, -1) 
-        #     ) # shape (bs, num_pos, hidden)
-
-        # if generate:
-        #     base_outputs, ctf_outputs = vene.generate(
-        #         base_tokens,
-        #         source_representations = src_activations,
-        #         max_length = seq_len + 10,
-        #         output_original_output = True,
-        #         intervene_on_prompt = True,
-        #         unit_locations = {"base": patches},
-        #     )
-
-        #     base_outputs = base_outputs[:, seq_len:]
-        #     ctf_outputs = ctf_outputs[:, seq_len:]
-
-        #     base_preds = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
-        #     ctf_preds = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
-
-        #     base_preds = [pred.strip() for pred in base_preds]
-        #     ctf_preds = [pred.strip() for pred in ctf_preds]
-
-        # else:
-        #     base_outputs, ctf_outputs = vene(
-        #         base_tokens,
-        #         source_representations = src_activations, # (bs, num_pos, hidden)
-        #         output_original_output = True,
-        #         unit_locations = {"sources->base": patches},
-        #     )
-
-        #     base_logits = base_outputs.logits[:, -1]
-        #     ctf_logits = ctf_outputs.logits[:, -1]
-
-        #     base_preds = base_logits.argmax(dim=-1).cpu().tolist()
-        #     ctf_preds = ctf_logits.argmax(dim=-1).cpu().tolist()
-
-        # all_base_preds += base_preds
-        # all_ctf_preds += ctf_preds
 
 df['base_pred'] = all_base_preds
 df['ctf_pred'] = all_ctf_preds

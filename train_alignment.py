@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from datasets import load_dataset
 from transformers import get_linear_schedule_with_warmup, \
 LlamaForCausalLM, LlamaTokenizer, LlamaConfig, \
+get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, \
 AutoConfig, AutoTokenizer, AutoModelForCausalLM
 from huggingface_hub import login
 
@@ -38,7 +39,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, 
                         default='sharpbai/alpaca-7b-merged', 
                         help='Name or path of the model')
-    parser.add_argument("--intervention_type", choices=["BDAS", "DAS"], default="BDAS")
+    parser.add_argument("--intervention_type", choices=["bdas", "das"], default="bdas")
     parser.add_argument("--interchange_dim", type=int)
 
     # Training args
@@ -55,6 +56,7 @@ if __name__ == "__main__":
                         default=4, type=int)
 
     parser.add_argument("--n_train", type=int, default=-1)
+    parser.add_argument("--n_dev", type=int, default=-1)
     parser.add_argument("--num_epochs", help="""Number of training epochs.""",
                         default=1, type=int)
     parser.add_argument("--batch_size", help="""Training batch size.""",
@@ -79,19 +81,33 @@ if __name__ == "__main__":
     interchange_dim = args.interchange_dim
 
     """
+    LLaMA 3:
+    - admissions-race-prompting_order-4th-sentence: -48
+    - admissions-race-prompting_modifier: 14 (right padding)
+    - admissions-race-prompting_order-4th: -48
+    - hiring-race-prompting_order-4th-sentence: -31 
     Alpaca:
     - admissions: 16 or 9 (p_var is 29, prod_var is 61)
-    - admissions_race_offset: 62
-    - hire_dec: 18
-    - hire_dec_eval: 18
-    - hire_dec_names: 17
+    - admissions-race-offset: 62
+    - hiring-race-offset: -37
+    - hire-dec: 18
+    - hire-dec-eval: 18
+    - hire-dec-names: 17
     Mistral:
+    - admissions-race-prompting_order-4th-sentence: -50
+    - hiring-race-prompting_order-4th-sentence: -39
     - admissions: 43
-    - hire_dec: 40
-    - hire_dec_eval: 18
-    - hire_dec_names: 17
+    - admissions-race-offset: 96
+    - hiring-race-offset: -36
+    - hire-dec: 40
+    - hire-dec-eval: 18
+    - hire-dec-names: 17
     Gemma:
+    - admissions-race-prompting_order-4th-sentence: -54
+    - hiring-race-prompting_order-4th-sentence: -41
     - admissions: 14
+    - admissions-race-offset: 55
+    - hiring-race-offset: -43
     - hire_dec: 15
     - hire-dec-eval: 15
     - hire-dec-names: 14
@@ -107,11 +123,12 @@ if __name__ == "__main__":
     v_step = args.vertical_step
 
     n_train = args.n_train
+    n_dev = args.n_dev
     num_epochs = args.num_epochs
     batch_size = args.batch_size
 
     save_alignments = args.save_alignments
-    device = 'cuda'
+    device = 'cuda:0'
 
     config = AutoConfig.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -133,7 +150,12 @@ if __name__ == "__main__":
     })
 
     if n_train > 0:
-        ds['train'] = ds['train'].shuffle(seed=42).select(range(n_train))
+        indices = np.random.choice(len(ds['train']), size=n_train, replace=True)
+        ds['train'] = ds['train'].shuffle(seed=42).select(indices)
+
+    if n_dev > 0:
+        indices = np.random.choice(len(ds['dev']), size=n_dev, replace=True)
+        ds['dev'] = ds['dev'].shuffle(seed=42).select(indices)
 
     train_loader = DataLoader(ds['train'], batch_size=batch_size)
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
@@ -146,17 +168,17 @@ if __name__ == "__main__":
                         padding=True, 
                         return_tensors="pt").input_ids
     max_seq_len = token_ids.shape[1]
-
-    if h_start < 0:
-        h_start = max_seq_len + h_start
-        h_end = max_seq_len + h_end
-
     extra_steps = num_extra_steps * h_step
 
     layers = list(range(v_start, v_end+1, v_step))
+    positions = list(range(h_start-extra_steps, h_end+1, h_step))
 
-    positions = list(range(h_start-extra_steps, h_end+1, h_step)) \
-    + list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
+    train_end = True # whether to train tokens near the end
+    if train_end:
+        # positions += list(
+        #     range((max_seq_len-1)-extra_steps, max_seq_len, h_step)
+        # )
+        positions += list(range(-1-extra_steps, 0, h_step))
 
     # we search over layers and token positions
     for layer in layers:
@@ -165,7 +187,7 @@ if __name__ == "__main__":
 
             print(args.save_name)
 
-            if vene_type == "BDAS":
+            if vene_type == "bdas":
                 config = pv.IntervenableConfig([
                     {
                         "layer": layer,
@@ -191,7 +213,6 @@ if __name__ == "__main__":
                 intervenable.set_device(device)
                 intervenable.disable_model_gradients()
                 
-
             # set up optimizer
             total_steps = num_epochs * len(ds['train'])
             optimizer_params = []
@@ -201,14 +222,18 @@ if __name__ == "__main__":
                         "params": v[0].rotate_layer.parameters()
                     })
                     optimizer_params.append({
-                        'params': v[0].intervention_boundaries, 'lr': 1e-2
+                        'params': v[0].intervention_boundaries, 'lr': 1e-3
+                        # 'params': v[0].intervention_boundaries, 'lr': 5e-3
                     })
                 except:
                     pass
             optimizer = torch.optim.Adam(optimizer_params, lr=1e-4)
+            # optimizer = torch.optim.Adam(optimizer_params, lr=2e-4)
             scheduler = get_linear_schedule_with_warmup(
+            # scheduler = get_cosine_schedule_with_warmup(
                 optimizer,
                 num_warmup_steps=int(0.1 * total_steps),
+                # num_warmup_steps=int(0.05 * total_steps),
                 num_training_steps=total_steps,
             ) 
 
@@ -233,11 +258,28 @@ if __name__ == "__main__":
                     source_tokens = tokenizer(example['source'], 
                                             return_tensors='pt', 
                                             padding=True).to(device)
+                    
+                    base = base_tokens.input_ids
+                    src = source_tokens.input_ids
+
+                    # breakpoint()
+
+                    if position < 0:
+                        base_pos = base.shape[1] + position
+                        src_pos = src.shape[1] + position
+                    else:
+                        base_pos = src_pos = position
+
+                    print(base_pos, src_pos)
+
+                    print(tokenizer.batch_decode(base[:10, base_pos]))
+                    print(tokenizer.batch_decode(src[:10, src_pos]))
 
                     _, counterfactual_outputs = intervenable(
                         base_tokens,
                         [source_tokens],
-                        {"sources->base": position},
+                        # {"sources->base": position},
+                        unit_locations={"sources->base": (src_pos, base_pos)},
                     )
 
                     logits = counterfactual_outputs.logits[:, -1]
@@ -265,11 +307,21 @@ if __name__ == "__main__":
                         source_tokens = tokenizer(example['source'], 
                                                 return_tensors='pt', 
                                                 padding=True).to(device)
+                        
+                        base = base_tokens.input_ids
+                        src = source_tokens.input_ids
+
+                        if position < 0:
+                            base_pos = base.shape[1] + position
+                            src_pos = src.shape[1] + position
+                        else:
+                            base_pos = src_pos = position
                     
                         _, counterfactual_outputs = intervenable(
                             base_tokens,
                             [source_tokens],
-                            {"sources->base": position},
+                            # {"sources->base": position},
+                            unit_locations={"sources->base": (src_pos, base_pos)},
                         )
 
                         logits = counterfactual_outputs.logits[:, -1]
@@ -283,6 +335,7 @@ if __name__ == "__main__":
                     acc = accuracy_score(all_preds, all_labels)
 
                     writer.add_scalar('dev accuracy', acc, epoch)
+                    print(acc)
 
             # saving the alignment
             if save_alignments:

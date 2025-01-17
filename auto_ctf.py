@@ -3,7 +3,7 @@ import argparse
 import os
 import re
 
-from make_ctf_dataset import format_label
+from utils import format_label
 
 def race_to_race(row):
     return row['race']
@@ -32,7 +32,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("--base_path")
 parser.add_argument("--source_path")
-parser.add_argument("--model_name", choices=['alpaca', 'mistral', 'gemma'])
+parser.add_argument("--model_name", choices=['alpaca', 'llama3', 'mistral', 'gemma'])
 parser.add_argument("--causal_variable", choices=['race', 'race_given_name'])
 parser.add_argument("--p_variables", nargs='+', type=str, 
                     help="input variables that affect var")
@@ -40,6 +40,7 @@ parser.add_argument("--q_variables", nargs='*', type=str,
                     help="input variables that do not affect var")
 parser.add_argument("--train_dev_split", nargs='+', type=float)
 parser.add_argument("--save_path", default='./')
+parser.add_argument("--save_by_role", action='store_true')
 
 args = parser.parse_args()
 
@@ -52,13 +53,12 @@ p_vars = args.p_variables # should be defined in the causal function already
 q_vars = args.q_variables
 train_dev_split = args.train_dev_split
 save_path = args.save_path
+save_by_role = args.save_by_role
 
 if causal_var == 'race':
     var_name = 'race'
     var_func = race_to_race
 elif causal_var == 'race_given_name':
-    # var_name = 'race'
-    # var_func = name_to_race
     pass
 
 df_base = pd.read_csv(base_path)
@@ -103,6 +103,13 @@ for value in var_values:
                 df_ctf['source'] = df_race['profile']
                 df_ctf['base_label'] = base_label
                 df_ctf['src_label'] = src_label
+
+                # breakpoint()
+                df_ctf = pd.concat(
+                    [df_ctf, q_base_settings[q_vars].reset_index(drop=True)],
+                    axis=1
+                )
+
                 all_df_ctf.append(df_ctf)
 
 all_df_ctf = pd.concat(all_df_ctf, axis=0)
@@ -152,11 +159,10 @@ df_train = df_ctf_balanced[:train_end]
 df_dev = df_ctf_balanced[train_end:dev_end]
 df_test = df_ctf_balanced[dev_end:]
 
-if 'hire-dec-eval' in base_path:
+if save_by_role: # only for hiring
     split_by_role_and_save_csv(df_train, save_path, 'train')
     split_by_role_and_save_csv(df_dev, save_path, 'dev')
     split_by_role_and_save_csv(df_test, save_path, 'test')
-
 else:
     os.makedirs(save_path, exist_ok=True)
     df_train.to_csv(os.path.join(save_path, 'train.csv'), index=False)

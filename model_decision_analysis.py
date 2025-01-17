@@ -12,8 +12,7 @@ import sys
 sys.path.append('../pyvene/')
 import pyvene as pv # using local pyvene
 
-from utils import HIRE_DEC_NAMES_SETTINGS, HIRE_DEC_EVAL_SETTINGS, \
-HIRING_SETTINGS_SHORT, BIOS_SETTINGS_SHORT, \
+from utils import ADMISSIONS_SETTINGS, HIRING_NAMES_SETTINGS, HIRING_SETTINGS, HIRING_SETTINGS_SHORT, ADMISSIONS_NAMES_SETTINGS, \
 llm_predict, format_prompt, sample_one
 
 
@@ -32,7 +31,7 @@ def get_length(prompt):
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--task", 
-                    choices=["Admissions", "HireDec", "HireDecEval", "HireDecNames", "DiscrimEval"],
+                    choices=["Admissions", "AdmissionsNames", "Hiring", "HireDec", "HiringNames", "DiscrimEval"],
                     default="Admissions"
                     )
 parser.add_argument("--template_path", 
@@ -58,8 +57,8 @@ preds_save_path = args.preds_save_path
 probs_save_path = args.probs_save_path
 plots_save_path = args.plots_save_path
 
-bs = 64
-device = 'cuda'
+bs = 128
+device = 'cuda:0'
 
 os.makedirs(preds_save_path, exist_ok=True)
 os.makedirs(probs_save_path, exist_ok=True)
@@ -74,6 +73,7 @@ llama = AutoModelForCausalLM.from_pretrained(
     model_name,
     config=config,
     torch_dtype=torch.bfloat16,  # save memory
+    # device_map='auto'
 )
 _ = llama.to(device)
 _ = llama.eval()
@@ -106,21 +106,27 @@ if task == 'DiscrimEval':
 
 else:
     if task == 'Admissions':
-        settings = BIOS_SETTINGS_SHORT
-        settings['uni'] = ['Harvard']
+        settings = ADMISSIONS_SETTINGS
+        # settings['uni'] = ['Harvard University']
         ds_type = 'admissions_short'
+    if task == 'AdmissionsNames':
+        settings = ADMISSIONS_NAMES_SETTINGS
+        # settings['uni'] = ['Harvard University']
+        ds_type = 'admissions_names'
+    elif task == 'Hiring':
+        settings = HIRING_SETTINGS
+        # settings['role'] = ['Data Scientist']
+        ds_type = 'hire_dec_eval'
     elif task == 'HireDec':
         settings = HIRING_SETTINGS_SHORT
         ds_type = 'hiring_short'
-    elif task == 'HireDecEval':
-        settings = HIRE_DEC_EVAL_SETTINGS
-        ds_type = 'hire_dec_eval'
-    elif task == 'HireDecNames':
-        settings = HIRE_DEC_NAMES_SETTINGS
-        ds_type = 'hire_dec_names'
+    elif task == 'HiringNames':
+        settings = HIRING_NAMES_SETTINGS
+        ds_type = 'hiring_names'
+
+    # breakpoint()
 
     template = open(template_path).read()
-
     profiles = [sample_one(settings) for _ in range(ds_size)]
     prompts = [format_prompt(template, profile, dataset=ds_type) 
                for profile in profiles]
@@ -155,8 +161,6 @@ for pred in preds:
 df_data['pred'] = _preds
 df_data = df_data.loc[df_data['pred'] != "Null"]
 
-# df_data['pred'] = preds
-
 df_data.to_csv(os.path.join(preds_save_path, 'preds.csv'), index=False)
 
 df_pred_no = df_data.loc[df_data['pred'] == 'No']
@@ -169,7 +173,7 @@ features = df_data.drop(columns=['profile','pred']).columns
 for feature in features:
     print(feature)
     
-    bin_vals = df_data[feature].unique().tolist()
+    bin_vals = sorted(df_data[feature].unique().tolist())
     yes_count = df_pred_yes[feature].value_counts()
     no_count = df_pred_no[feature].value_counts()
     
