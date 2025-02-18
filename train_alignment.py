@@ -128,7 +128,7 @@ if __name__ == "__main__":
     batch_size = args.batch_size
 
     save_alignments = args.save_alignments
-    device = 'cuda:0'
+    device = 'cuda:1'
 
     config = AutoConfig.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -146,7 +146,7 @@ if __name__ == "__main__":
     ds = load_dataset('csv', data_files={
         'train': os.path.join(ds_path, 'train.csv'),
         'dev': os.path.join(ds_path, 'dev.csv'),
-        'test': os.path.join(ds_path, 'test.csv'),
+        # 'test': os.path.join(ds_path, 'test.csv'),
     })
 
     if n_train > 0:
@@ -159,7 +159,7 @@ if __name__ == "__main__":
 
     train_loader = DataLoader(ds['train'], batch_size=batch_size)
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
-    test_loader = DataLoader(ds['test'], batch_size=batch_size)
+    # test_loader = DataLoader(ds['test'], batch_size=batch_size)
 
     if v_end == -1:
         v_end = llama.config.num_hidden_layers
@@ -228,7 +228,8 @@ if __name__ == "__main__":
                 except:
                     pass
             optimizer = torch.optim.Adam(optimizer_params, lr=1e-4)
-            # optimizer = torch.optim.Adam(optimizer_params, lr=2e-4)
+            # optimizer = torch.optim.Adam(optimizer_params, lr=1e-3)
+
             scheduler = get_linear_schedule_with_warmup(
             # scheduler = get_cosine_schedule_with_warmup(
                 optimizer,

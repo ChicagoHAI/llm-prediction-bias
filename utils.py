@@ -274,6 +274,7 @@ BIOS_SETTINGS = {
     }
 }
 
+
 """
 Sample a candidate profile
 """
@@ -304,6 +305,16 @@ def sample_one(settings, custom_stats=None):
     #     candidate['num_pres'] = random.choice(np.arange(candidate['num_ecs']))
         
     return candidate
+
+"""
+Get an applicant's race from a prompt
+"""
+def get_race(prompt):
+    words = prompt.split(" ")
+    for word in words:
+        race = word.split(".")[0]
+        if race in ["White", "Black", "Latino", "Asian"]:
+            return race
 
 
 def format_prompt(template, candidate, 
@@ -470,36 +481,38 @@ def save_alignment(intervenable, save_path, save_name):
 
 
 """
-Load a trained BoundlessRotatedSpace alignment. Assumes the user is only
+Load a trained alignment. Assumes the user is only
 loading in one alignment potentially across multiple layers.
 """
 def load_alignment(save_path, config, model, src_save_path=None,
                    alignment_type=pv.BoundlessRotatedSpaceIntervention):
-    # We assume the model is saved with this file name
-    model_params_path = os.path.join(save_path, "model_params.pt")
     intervenable = pv.IntervenableModel(config, model)
-    intervention_params = alignment_type(
-        embed_dim=model.config.hidden_size
-    )
-    intervention_params.load_state_dict(
-        torch.load(model_params_path, weights_only=True)
-    )
 
-    if src_save_path != None:
-        src_params_path = os.path.join(src_save_path, "model_params.pt")
-        src_intervention_params = alignment_type(
+    if save_path:
+        # We assume the model is saved with this file name
+        model_params_path = os.path.join(save_path, "model_params.pt")
+        intervention_params = alignment_type(
             embed_dim=model.config.hidden_size
         )
-        src_intervention_params.load_state_dict(
-            torch.load(src_params_path, weights_only=True)
+        intervention_params.load_state_dict(
+            torch.load(model_params_path, weights_only=True)
         )
-        src_rotate = src_intervention_params.rotate_layer
-        intervention_params.set_src_rotate_layer(src_rotate)
 
-    keys = list(intervenable.representations.keys())
-    for key in keys:
-        hook = intervenable.interventions[key][1]
-        intervenable.interventions[key] = (intervention_params, hook)
+        if src_save_path != None:
+            src_params_path = os.path.join(src_save_path, "model_params.pt")
+            src_intervention_params = alignment_type(
+                embed_dim=model.config.hidden_size
+            )
+            src_intervention_params.load_state_dict(
+                torch.load(src_params_path, weights_only=True)
+            )
+            src_rotate = src_intervention_params.rotate_layer
+            intervention_params.set_src_rotate_layer(src_rotate)
+
+        keys = list(intervenable.representations.keys())
+        for key in keys:
+            hook = intervenable.interventions[key][1]
+            intervenable.interventions[key] = (intervention_params, hook)
     
     return intervenable
 
@@ -510,8 +523,8 @@ def get_race_pos(prompt):
             race_idx = i - len(words)
     return race_idx
 
-def get_race(prompt, pos):
-    return prompt.split()[pos]
+# def get_race(prompt, pos):
+#     return prompt.split()[pos]
 
 def color_race(race):
     if 'White' in race:
