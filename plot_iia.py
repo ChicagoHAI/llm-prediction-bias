@@ -51,38 +51,35 @@ v_end = args.vertical_end
 v_step = args.vertical_step
 
 os.makedirs(os.path.dirname(save_file), exist_ok=True)
-
-# name = "sharpbai/alpaca-7b-merged"
-# config = LlamaConfig.from_pretrained(name)
-# tokenizer = LlamaTokenizer.from_pretrained(name)
+# sns.set_context("notebook")
 
 config = AutoConfig.from_pretrained(name)
 tokenizer = AutoTokenizer.from_pretrained(name)
+tokenizer.padding_side = 'left'
+tokenizer.pad_token = tokenizer.eos_token
 
 ds = load_dataset('csv', data_files={
     'train': os.path.join(ds_path, 'train.csv'),
-    'test': os.path.join(ds_path, 'test.csv'),
+    # 'test': os.path.join(ds_path, 'test.csv'),
 })
-train_loader = DataLoader(ds['train'], batch_size=32)
 
 if v_end == -1:
     v_end = config.num_hidden_layers
 
-token_ids = tokenizer(ds['train'][0]['base']).input_ids
-max_seq_len = len(token_ids)
-# max_seq_len = 124
-print(max_seq_len)
+token_ids = tokenizer(ds['train']['base'][:50], 
+                      padding=True, 
+                      return_tensors="pt").input_ids
+max_seq_len = token_ids.shape[1]
 extra_steps = num_extra_steps * h_step
+
+# breakpoint()
 
 layers = list(range(v_start, v_end+1, v_step))
 positions = list(range(h_start-extra_steps, h_end+1, h_step))
-# + list(range((max_seq_len-1)-extra_steps, max_seq_len, h_step))
 
 plot_end = True # whether to plot tokens near the end
 if plot_end:
-    positions += list(
-        range((max_seq_len-1)-extra_steps, max_seq_len, h_step)
-    )
+    positions += list(range(-1-extra_steps, 0, h_step))
 
 res_matrix = np.zeros((len(layers), len(positions)))
 
@@ -90,7 +87,7 @@ for i in range(len(layers)):
     layer = layers[i]
     for j in range(len(positions)):
         position = positions[j]
-        filename = f'layer_{layer}_pos_{position}.txt'
+        filename = f'layer_{layer}_token_{position}.txt'
         
         try:
             with open(os.path.join(results_path, filename), 'r') as fr:
@@ -105,26 +102,36 @@ for i in range(len(layers)):
 layers_r = list(layers)
 layers_r.reverse()
 
-tokens = tokenizer.batch_decode(token_ids)
-# print(len(tokens))
+tokens = tokenizer.batch_decode(token_ids[0])
 tokens_search = tokens[h_start-extra_steps : h_end+1 : h_step] \
 + tokens[(max_seq_len-1)-extra_steps : max_seq_len : h_step]
 
+# breakpoint()
+
 x_labels = []
 for token, pos in zip(tokens_search, positions):
+    if pos == -93 or pos == -92:
+        token = '<name>'
+    if token.strip() in ['Asian', 'Black', 'Latino', 'White']:
+        token = '<race>'
+    if '\n' in token:
+        token = token.replace('\n', '\\n')
     x_labels.append(f'{token} ({pos})')
 
 # Plotting
-plt.figure(figsize=(10, 5))
+plt.figure(figsize=(13, 9))
+# plt.figure(figsize=(13, 12)) # for when there are many layers
+# plt.figure(figsize=(13, 14))
 sns.heatmap(np.flip(res_matrix, axis=0), 
-            annot=True, annot_kws={'size':12}, fmt=".2f", cmap="magma_r", cbar=False, 
+            annot=True, 
+            # annot_kws={'size':20}, 
+            annot_kws={'size':18}, 
+            fmt=".2f", cmap="magma_r", cbar=False, 
             xticklabels=x_labels, yticklabels=layers_r)
 
-plt.title("IIA", fontsize=20)
-plt.xticks(fontsize=14, rotation=45, ha='right')
-plt.yticks(fontsize=14)
-plt.xlabel("Token position", fontsize=14)
-plt.ylabel("Layer", fontsize=14)
+plt.xticks(fontsize=25, rotation=45, ha='right')
+plt.yticks(fontsize=25)
+plt.ylabel("Layer", fontsize=30)
 
-plt.savefig(save_file, bbox_inches='tight')
-
+plt.savefig(save_file + ".jpg", bbox_inches='tight')
+plt.savefig(save_file + ".pdf", bbox_inches='tight')

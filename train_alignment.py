@@ -227,8 +227,9 @@ if __name__ == "__main__":
                     })
                 except:
                     pass
+            # optimizer = torch.optim.Adam(optimizer_params, lr=5e-5)
             optimizer = torch.optim.Adam(optimizer_params, lr=1e-4)
-            # optimizer = torch.optim.Adam(optimizer_params, lr=1e-3)
+            # optimizer = torch.optim.Adam(optimizer_params, lr=2e-4)
 
             scheduler = get_linear_schedule_with_warmup(
             # scheduler = get_cosine_schedule_with_warmup(
@@ -286,6 +287,8 @@ if __name__ == "__main__":
                     logits = counterfactual_outputs.logits[:, -1]
                     loss = calculate_loss(logits, example['src_label'].to(device))
                     epoch_iterator.set_postfix({"loss": f"{loss.item():.3f}"})
+
+                    # breakpoint()
                     
                     writer.add_scalar('training loss', loss, curr_step)
 

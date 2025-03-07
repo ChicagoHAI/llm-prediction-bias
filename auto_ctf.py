@@ -33,7 +33,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--base_path")
 parser.add_argument("--source_path")
 parser.add_argument("--model_name", choices=['alpaca', 'llama3', 'mistral', 'gemma'])
-parser.add_argument("--causal_variable", choices=['race', 'race_given_name'])
+parser.add_argument("--causal_variable", 
+                    # choices=['race', 'race_given_name']
+                    )
 parser.add_argument("--p_variables", nargs='+', type=str, 
                     help="input variables that affect var")
 parser.add_argument("--q_variables", nargs='*', type=str, 
@@ -55,17 +57,20 @@ train_dev_split = args.train_dev_split
 save_path = args.save_path
 save_by_role = args.save_by_role
 
-if causal_var == 'race':
-    var_name = 'race'
-    var_func = race_to_race
-elif causal_var == 'race_given_name':
-    pass
+# if causal_var == 'race':
+#     var_name = 'race'
+#     var_func = race_to_race
+# elif causal_var == 'race_given_name':
+#     pass
 
 df_base = pd.read_csv(base_path)
 df_src = pd.read_csv(src_path)
 
-df_base['var'] = df_base.apply(var_func, axis=1)
-df_src['var'] = df_src.apply(var_func, axis=1)
+# df_base['var'] = df_base.apply(var_func, axis=1)
+# df_src['var'] = df_src.apply(var_func, axis=1)
+
+df_base['var'] = df_base[causal_var]
+df_src['var'] = df_src[causal_var]
 
 var_values = df_base['var'].unique()
 labels = df_base['pred'].unique()
@@ -74,10 +79,14 @@ all_df_ctf = []
 for value in var_values:
     for base_label in labels:
         for src_label in labels:
-            print(f"{value} {base_label} {src_label}")
+            print(f"{value}: {base_label} -> {src_label}")
             
-            p_q_base_settings = df_base.loc[(df_base['var'] == value) &
-                                            (df_base['pred'] == src_label)]
+            p_q_base_settings = df_base.loc[
+                (df_base['var'] == value) 
+                & (df_base['pred'] == src_label)
+            ]
+            # breakpoint()
+            # src_race = p_q_base_settings['race'].unique()[0]
             
             dfs = []
             for _, row in p_q_base_settings.iterrows():
@@ -92,7 +101,11 @@ for value in var_values:
                 df_ctf = pd.DataFrame([])
 
                 # sampling base examples
-                q_base_settings = q_settings.loc[q_settings['pred'] == base_label]
+                q_base_settings = q_settings.loc[
+                    (q_settings['pred'] == base_label)
+                    # & (q_settings['race'] != src_race) # NEW
+                ]
+                # breakpoint()
                 df_ctf['base'] = q_base_settings['profile'].reset_index(drop=True)
                 
                 # sampling source examples
