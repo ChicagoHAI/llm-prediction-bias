@@ -28,6 +28,32 @@ def split_by_role_and_save_csv(df, save_path, data_split='test'):
             os.path.join(save_path_role, f"{data_split}.csv"), index=False
         )
 
+def balance_labels(df):
+    labels_count = df[['base_label', 'src_label']].value_counts().tolist()
+    n_samples = min(labels_count) if labels_count else 0
+    # n_samples = labels_count.min()
+    # print(labels_count)
+    # nonzero_counts = [count for count in labels_count if count != 0]
+    # n_samples = min(nonzero_counts)
+
+    labels = df['base_label'].unique()
+    df_ctfs = []
+    for base_label in labels:
+        for src_label in labels:
+            df_base_src = df.loc[
+                (df['base_label'] == base_label) & 
+                (df['src_label'] == src_label)
+            ]
+            if len(df_base_src) >= n_samples:
+                df_base_src = df_base_src.sample(n_samples)
+            else:
+                df_base_src = pd.DataFrame([])
+            df_ctfs.append(df_base_src)
+
+    df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
+    .sample(frac=1).reset_index(drop=True)
+    return df_ctf_balanced
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--base_path")
@@ -127,30 +153,53 @@ for value in var_values:
 
 all_df_ctf = pd.concat(all_df_ctf, axis=0)
 
-ctf_behavior_counts = []
-for base_label in labels:
-    for src_label in labels:
-        base_src = all_df_ctf.loc[
-            (all_df_ctf['base_label'] == base_label) & 
-            (all_df_ctf['src_label'] == src_label)
-        ]
-        print(f"{base_label} {src_label}: {len(base_src)}")
-        ctf_behavior_counts.append(len(base_src))
+# ctf_behavior_counts = []
+# for base_label in labels:
+#     for src_label in labels:
+#         base_src = all_df_ctf.loc[
+#             (all_df_ctf['base_label'] == base_label) & 
+#             (all_df_ctf['src_label'] == src_label)
+#         ]
+#         print(f"{base_label} {src_label}: {len(base_src)}")
+#         ctf_behavior_counts.append(len(base_src))
 
-nonzero_counts = [count for count in ctf_behavior_counts if count != 0]
-n_samples = min(nonzero_counts)
+# nonzero_counts = [count for count in ctf_behavior_counts if count != 0]
+# n_samples = min(nonzero_counts)
 
-df_ctfs = []
-for base_label in labels:
-    for src_label in labels:
-        df_base_src = all_df_ctf.loc[
-            (all_df_ctf['base_label'] == base_label) & 
-            (all_df_ctf['src_label'] == src_label)
-        ].sample(n_samples)
-        df_ctfs.append(df_base_src)
+# df_ctfs = []
+# for base_label in labels:
+#     for src_label in labels:
+#         df_base_src = all_df_ctf.loc[
+#             (all_df_ctf['base_label'] == base_label) & 
+#             (all_df_ctf['src_label'] == src_label)
+#         ].sample(n_samples)
+#         df_ctfs.append(df_base_src)
+
+# df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
+# .sample(frac=1).reset_index(drop=True)
+
+if 'uni' in q_vars:
+    unis = all_df_ctf['uni'].unique()
+    df_ctfs = []
+    for uni in unis:
+        df_uni = all_df_ctf.loc[all_df_ctf['uni'] == uni]
+        df_uni = balance_labels(df_uni)
+        df_ctfs.append(df_uni)
+elif 'role' in q_vars:
+    roles = all_df_ctf['role'].unique()
+    df_ctfs = []
+    for role in roles:
+        df_role = all_df_ctf.loc[all_df_ctf['role'] == role]
+        df_role = balance_labels(df_role)
+        df_ctfs.append(df_role)
 
 df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
 .sample(frac=1).reset_index(drop=True)
+
+ctf_counts = df_ctf_balanced[['base_label','src_label']].value_counts()
+print(ctf_counts)
+# assert (ctf_counts[0] == ctf_counts[1]) and (ctf_counts[1] == ctf_counts[2]) \
+# and (ctf_counts[2] == ctf_counts[3])
 
 # doing manual tokenization because the model's output Yes or No tokens
 # can be different from the tokenizer's, weird.

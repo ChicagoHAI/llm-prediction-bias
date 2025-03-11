@@ -598,7 +598,8 @@ Load a trained alignment. Assumes the user is only
 loading in one alignment potentially across multiple layers.
 """
 def load_alignment(save_path, config, model, src_save_path=None,
-                   alignment_type=pv.BoundlessRotatedSpaceIntervention):
+                   alignment_type=pv.BoundlessRotatedSpaceIntervention,
+                   interchange_dim=None):
     intervenable = pv.IntervenableModel(config, model)
 
     if save_path:
@@ -626,6 +627,12 @@ def load_alignment(save_path, config, model, src_save_path=None,
         for key in keys:
             hook = intervenable.interventions[key][1]
             intervenable.interventions[key] = (intervention_params, hook)
+
+    else:
+        if interchange_dim != None:
+            keys = list(intervenable.representations.keys())
+            for key in keys:
+                intervenable.interventions[key][0].interchange_dim = torch.tensor(interchange_dim)
     
     return intervenable
 

@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--dataset_path", 
                         help="""Path to the directory containing
                         the counterfactual dataset files.""")
-    parser.add_argument("--interchange_dim", type=int, default=2000)
+    parser.add_argument("--interchange_dim", type=int, default=None)
     parser.add_argument("--base_task",
                         choices=['Admissions', 'HireDec', 'Hiring', 'HireDecNames', 'DiscrimEval', 'RaceQA', 'HiringRaceOffset'],
                         default="Admissions")
@@ -110,6 +110,7 @@ save_path = args.save_path
 
 model_name = args.model_name
 device = 'cuda:2'
+SEED = 42
 
 # os.makedirs(save_path, exist_ok=True)
 
@@ -129,8 +130,8 @@ _ = llama.eval()
 df = pd.read_csv(os.path.join(ds_path, 'test.csv'))
 if n_test > 0:
     subset_size = n_test // 2
-    df1 = df.loc[df['base_label'] == df['src_label']].sample(subset_size, replace=True)
-    df2 = df.loc[df['base_label'] != df['src_label']].sample(subset_size, replace=True)
+    df1 = df.loc[df['base_label'] == df['src_label']].sample(subset_size, replace=True, random_state=SEED)
+    df2 = df.loc[df['base_label'] != df['src_label']].sample(subset_size, replace=True, random_state=SEED)
     
     # df = df.sample(n_test, replace=True)
     df = pd.concat([df1, df2])
@@ -373,9 +374,12 @@ elif args.method == "das":
     ])
     vene_das = load_alignment(align_path, config_das, llama,
                               src_save_path=src_align_path, 
-                              alignment_type=pv.RotatedSpaceIntervention)
+                              alignment_type=pv.RotatedSpaceIntervention, 
+                              interchange_dim=interchange_dim)
     vene_das.set_device(device)
     vene_das.disable_model_gradients()
+
+    # breakpoint()
 
     vene = vene_das
     print("Using vanilla DAS!")
