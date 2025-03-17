@@ -1,40 +1,22 @@
 import pandas as pd
 import argparse
 import os
-import re
 
 from utils import format_label
 
-def race_to_race(row):
-    return row['race']
+"""
+Subsamples the DataFrame to balance the number of examples for each 
+counterfactual behavior.
 
-def get_role(prompt):
-    match = re.search(r'for a\s*(.*?)\s*role', prompt)
-    if match:
-        return match.group(1)
+Parameters:
+df (pd.DataFrame): The input DataFrame containing the data to be balanced.
 
-def split_by_role_and_save_csv(df, save_path, data_split='test'):
-    df['role'] = df['base'].apply(get_role)
-    df['role'] = df['role'].apply(lambda x: x.lower().replace(" ", "-"))
-    roles = df['role'].unique()
-
-    for role in roles:
-        save_path_role = save_path.format(role)
-        os.makedirs(save_path_role, exist_ok=True)
-        
-        df_role = df.loc[df['role'] == role]
-        print(f"role: {role}, size: {len(df_role)}")
-        df_role.to_csv(
-            os.path.join(save_path_role, f"{data_split}.csv"), index=False
-        )
-
+Returns:
+pd.DataFrame: The balanced DataFrame.
+"""
 def balance_labels(df):
     labels_count = df[['base_label', 'src_label']].value_counts().tolist()
     n_samples = min(labels_count) if labels_count else 0
-    # n_samples = labels_count.min()
-    # print(labels_count)
-    # nonzero_counts = [count for count in labels_count if count != 0]
-    # n_samples = min(nonzero_counts)
 
     labels = df['base_label'].unique()
     df_ctfs = []
@@ -44,7 +26,7 @@ def balance_labels(df):
                 (df['base_label'] == base_label) & 
                 (df['src_label'] == src_label)
             ]
-            if len(df_base_src) >= n_samples:
+            if len(df_base_src) >= n_samples and n_samples > 0:
                 df_base_src = df_base_src.sample(n_samples)
             else:
                 df_base_src = pd.DataFrame([])
@@ -52,181 +34,376 @@ def balance_labels(df):
 
     df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
     .sample(frac=1).reset_index(drop=True)
+
     return df_ctf_balanced
 
-parser = argparse.ArgumentParser()
 
-parser.add_argument("--base_path")
-parser.add_argument("--source_path")
-parser.add_argument("--model_name", choices=['alpaca', 'llama3', 'mistral', 'gemma'])
-parser.add_argument("--causal_variable", 
-                    # choices=['race', 'race_given_name']
-                    )
-parser.add_argument("--p_variables", nargs='+', type=str, 
-                    help="input variables that affect var")
-parser.add_argument("--q_variables", nargs='*', type=str, 
-                    help="input variables that do not affect var")
-parser.add_argument("--train_dev_split", nargs='+', type=float)
-parser.add_argument("--save_path", default='./')
-parser.add_argument("--save_by_role", action='store_true')
+def main():
+    parser = argparse.ArgumentParser()
 
-args = parser.parse_args()
+    parser.add_argument("--base_path", help="path to the base predictions")
+    parser.add_argument("--source_path", help="path to the source predictions")
 
-base_path = args.base_path
-src_path = args.source_path
-model_name = args.model_name
+    parser.add_argument("--model_name", choices=['alpaca', 'llama3', 'mistral', 'gemma'])
+    parser.add_argument("--causal_variable")
+    parser.add_argument("--side_variables", nargs='*', type=str, 
+                        help="input variables that do not affect the causal variable")
+    
+    parser.add_argument("--random_seed", type=int, default=42)
+    parser.add_argument("--train_dev_split", nargs='+', type=float)
+    parser.add_argument("--save_path", default='./')
 
-causal_var = args.causal_variable
-p_vars = args.p_variables # should be defined in the causal function already
-q_vars = args.q_variables
-train_dev_split = args.train_dev_split
-save_path = args.save_path
-save_by_role = args.save_by_role
+    args = parser.parse_args()
 
-# if causal_var == 'race':
-#     var_name = 'race'
-#     var_func = race_to_race
-# elif causal_var == 'race_given_name':
-#     pass
+    base_path = args.base_path
+    src_path = args.source_path
 
-df_base = pd.read_csv(base_path)
-df_src = pd.read_csv(src_path)
+    model_name = args.model_name
+    causal_var = args.causal_variable
+    side_vars = args.side_variables
 
-# df_base['var'] = df_base.apply(var_func, axis=1)
-# df_src['var'] = df_src.apply(var_func, axis=1)
+    seed = args.random_seed
+    train_dev_split = args.train_dev_split
+    save_path = args.save_path
 
-df_base['var'] = df_base[causal_var]
-df_src['var'] = df_src[causal_var]
+    df_base = pd.read_csv(base_path)
+    df_src = pd.read_csv(src_path)
+    df_base['var'] = df_base[causal_var]
+    df_src['var'] = df_src[causal_var]
+    
+    var_values = df_base['var'].unique()
+    labels = df_base['pred'].unique()
 
-var_values = df_base['var'].unique()
-labels = df_base['pred'].unique()
+    all_df_ctf = []
+    for value in var_values:
+        for base_label in labels:
+            for src_label in labels:
+                print(f"{value}: {base_label} -> {src_label}")
 
-all_df_ctf = []
-for value in var_values:
-    for base_label in labels:
-        for src_label in labels:
-            print(f"{value}: {base_label} -> {src_label}")
-            
-            p_q_base_settings = df_base.loc[
-                (df_base['var'] == value) 
-                & (df_base['pred'] == src_label)
-            ]
-            # breakpoint()
-            # src_race = p_q_base_settings['race'].unique()[0]
-            
-            dfs = []
-            for _, row in p_q_base_settings.iterrows():
-                if len(q_vars) > 0:
-                    df = df_base.loc[(df_base[q_vars] == row[q_vars]).all(axis=1)]
-                else:
-                    df = df_base
-                dfs.append(df)
-                
-            if len(dfs) > 0:
-                q_settings = pd.concat(dfs, axis=0)
-                df_ctf = pd.DataFrame([])
-
-                # sampling base examples
-                q_base_settings = q_settings.loc[
-                    (q_settings['pred'] == base_label)
-                    # & (q_settings['race'] != src_race) # NEW
+                counterfactual_settings = df_base.loc[
+                    (df_base['var'] == value) 
+                    & (df_base['pred'] == src_label)
                 ]
-                # breakpoint()
-                df_ctf['base'] = q_base_settings['profile'].reset_index(drop=True)
+                side_settings = df_base.merge(counterfactual_settings[side_vars], on=side_vars)
                 
-                # sampling source examples
-                df_race = df_src.loc[df_src['var'] == value] \
-                .sample(len(df_ctf), replace=True, random_state=42) \
-                .reset_index(drop=True)
+                if len(side_settings) > 0:
+                    df_ctf = pd.DataFrame([])
 
-                df_ctf['source'] = df_race['profile']
-                df_ctf['base_label'] = base_label
-                df_ctf['src_label'] = src_label
+                    # sampling base examples
+                    base_settings = side_settings.loc[
+                        (side_settings['pred'] == base_label)
+                    ]
+                    df_ctf['base'] = base_settings['profile'].reset_index(drop=True)
+                    
+                    # sampling source examples
+                    df_race = df_src.loc[df_src['var'] == value] \
+                    .sample(len(df_ctf), replace=True, random_state=seed) \
+                    .reset_index(drop=True)
 
-                # breakpoint()
-                df_ctf = pd.concat(
-                    [df_ctf, q_base_settings[q_vars].reset_index(drop=True)],
-                    axis=1
-                )
+                    df_ctf['source'] = df_race['profile']
+                    df_ctf['base_label'] = base_label
+                    df_ctf['src_label'] = src_label
 
-                all_df_ctf.append(df_ctf)
+                    df_ctf = pd.concat(
+                        [df_ctf, base_settings[side_vars].reset_index(drop=True)],
+                        axis=1
+                    )
+                    all_df_ctf.append(df_ctf)
+    all_df_ctf = pd.concat(all_df_ctf, axis=0)
 
-all_df_ctf = pd.concat(all_df_ctf, axis=0)
+    # doing manual tokenization because the model's output Yes or No tokens
+    # can be different from the tokenizer's, weird.
+    all_df_ctf[['base_label','src_label']] = all_df_ctf[['base_label','src_label']] \
+    .replace('Yes', format_label('Yes', model_name)) \
+    .replace('No', format_label('No', model_name))
+    all_df_ctf = all_df_ctf.dropna()
 
-# ctf_behavior_counts = []
-# for base_label in labels:
-#     for src_label in labels:
-#         base_src = all_df_ctf.loc[
-#             (all_df_ctf['base_label'] == base_label) & 
-#             (all_df_ctf['src_label'] == src_label)
-#         ]
-#         print(f"{base_label} {src_label}: {len(base_src)}")
-#         ctf_behavior_counts.append(len(base_src))
+    len_df = len(all_df_ctf)
+    train_frac, dev_frac = train_dev_split
+    train_end = int(round(train_frac * len_df))
+    dev_end = int(
+        round((train_frac + dev_frac) * len_df)
+    )
 
-# nonzero_counts = [count for count in ctf_behavior_counts if count != 0]
-# n_samples = min(nonzero_counts)
+    all_df_ctf = all_df_ctf.sample(frac=1).reset_index(drop=True)
+    df_train = all_df_ctf[:train_end]
+    df_dev = all_df_ctf[train_end:dev_end]
+    df_test = all_df_ctf[dev_end:]
 
-# df_ctfs = []
-# for base_label in labels:
-#     for src_label in labels:
-#         df_base_src = all_df_ctf.loc[
-#             (all_df_ctf['base_label'] == base_label) & 
-#             (all_df_ctf['src_label'] == src_label)
-#         ].sample(n_samples)
-#         df_ctfs.append(df_base_src)
+    if 'uni' in side_vars:
+        group = 'uni'
+    elif 'role' in side_vars:
+        group = 'role'
+    df_train_balanced = df_train.groupby(group).apply(balance_labels)
+    df_dev_balanced = df_dev.groupby(group).apply(balance_labels)
+    df_test_balanced = df_test.groupby(group).apply(balance_labels)
 
-# df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
-# .sample(frac=1).reset_index(drop=True)
+    train_ctf_counts = df_train_balanced[['base_label','src_label']].value_counts()
+    print(train_ctf_counts)
+    dev_ctf_counts = df_dev_balanced[['base_label','src_label']].value_counts()
+    print(dev_ctf_counts)
+    test_ctf_counts = df_test_balanced[['base_label','src_label']].value_counts()
+    print(test_ctf_counts)
 
-if 'uni' in q_vars:
-    unis = all_df_ctf['uni'].unique()
-    df_ctfs = []
-    for uni in unis:
-        df_uni = all_df_ctf.loc[all_df_ctf['uni'] == uni]
-        df_uni = balance_labels(df_uni)
-        df_ctfs.append(df_uni)
-elif 'role' in q_vars:
-    roles = all_df_ctf['role'].unique()
-    df_ctfs = []
-    for role in roles:
-        df_role = all_df_ctf.loc[all_df_ctf['role'] == role]
-        df_role = balance_labels(df_role)
-        df_ctfs.append(df_role)
-
-df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
-.sample(frac=1).reset_index(drop=True)
-
-ctf_counts = df_ctf_balanced[['base_label','src_label']].value_counts()
-print(ctf_counts)
-# assert (ctf_counts[0] == ctf_counts[1]) and (ctf_counts[1] == ctf_counts[2]) \
-# and (ctf_counts[2] == ctf_counts[3])
-
-# doing manual tokenization because the model's output Yes or No tokens
-# can be different from the tokenizer's, weird.
-df_ctf_balanced[['base_label','src_label']] = df_ctf_balanced[['base_label','src_label']] \
-.replace('Yes', format_label('Yes', model_name)) \
-.replace('No', format_label('No', model_name))
-
-df_ctf_balanced = df_ctf_balanced.dropna()
-
-len_df = len(df_ctf_balanced)
-train_frac, dev_frac = train_dev_split
-
-train_end = int(round(train_frac * len_df))
-dev_end = int(
-    round((train_frac + dev_frac) * len_df)
-)
-
-df_train = df_ctf_balanced[:train_end]
-df_dev = df_ctf_balanced[train_end:dev_end]
-df_test = df_ctf_balanced[dev_end:]
-
-if save_by_role: # only for hiring
-    split_by_role_and_save_csv(df_train, save_path, 'train')
-    split_by_role_and_save_csv(df_dev, save_path, 'dev')
-    split_by_role_and_save_csv(df_test, save_path, 'test')
-else:
     os.makedirs(save_path, exist_ok=True)
-    df_train.to_csv(os.path.join(save_path, 'train.csv'), index=False)
-    df_dev.to_csv(os.path.join(save_path, 'dev.csv'), index=False)
-    df_test.to_csv(os.path.join(save_path, 'test.csv'), index=False)
+    df_train_balanced.to_csv(os.path.join(save_path, 'train.csv'), index=False)
+    df_dev_balanced.to_csv(os.path.join(save_path, 'dev.csv'), index=False)
+    df_test_balanced.to_csv(os.path.join(save_path, 'test.csv'), index=False)
+
+if __name__ == "__main__":
+    main()
+
+# import pandas as pd
+# import argparse
+# import os
+# import re
+
+# from utils import format_label, HIRING_SETTINGS
+
+# # outdated
+# def race_to_race(row):
+#     return row['race']
+
+# def get_role(prompt):
+#     match = re.search(r'for a\s*(.*?)\s*role', prompt)
+#     if match:
+#         return match.group(1)
+
+# """
+# Splits the DataFrame by roles and saves each subset to a CSV file.
+
+# Parameters:
+# df (pd.DataFrame): The input DataFrame containing the data to be split and saved.
+# save_path (str): The base path where the CSV files will be saved. The role will be formatted into this path.
+# data_split (str): The suffix for the CSV file name (default is 'test').
+
+# Returns:
+# None
+# """
+# def split_by_role_and_save_csv(df, save_path, data_split='test'):
+#     # df['role'] = df['base'].apply(get_role)
+#     # df['role'] = df['role'].apply(lambda x: x.lower().replace(" ", "-"))
+#     # roles = df['role'].unique()
+#     roles = HIRING_SETTINGS['roles']
+
+#     for role in roles:
+#         save_path_role = save_path.format(role)
+#         os.makedirs(save_path_role, exist_ok=True)
+        
+#         df_role = df.loc[df['role'] == role]
+#         print(f"role: {role}, size: {len(df_role)}")
+#         df_role.to_csv(
+#             os.path.join(save_path_role, f"{data_split}.csv"), index=False
+#         )
+
+
+# """
+# Subsamples the DataFrame to balance the number of examples for each 
+# counterfactual behavior.
+
+# Parameters:
+# df (pd.DataFrame): The input DataFrame containing the data to be balanced.
+
+# Returns:
+# pd.DataFrame: The balanced DataFrame.
+# """
+# def balance_labels(df):
+#     labels_count = df[['base_label', 'src_label']].value_counts().tolist()
+#     n_samples = min(labels_count) if labels_count else 0
+
+#     labels = df['base_label'].unique()
+#     df_ctfs = []
+#     for base_label in labels:
+#         for src_label in labels:
+#             df_base_src = df.loc[
+#                 (df['base_label'] == base_label) & 
+#                 (df['src_label'] == src_label)
+#             ]
+#             if len(df_base_src) >= n_samples and n_samples > 0:
+#                 df_base_src = df_base_src.sample(n_samples)
+#             else:
+#                 df_base_src = pd.DataFrame([])
+#             df_ctfs.append(df_base_src)
+
+#     df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
+#     .sample(frac=1).reset_index(drop=True)
+
+#     return df_ctf_balanced
+
+
+# def main():
+#     parser = argparse.ArgumentParser()
+
+#     parser.add_argument("--base_path")
+#     parser.add_argument("--source_path")
+#     parser.add_argument("--model_name", choices=['alpaca', 'llama3', 'mistral', 'gemma'])
+#     parser.add_argument("--causal_variable")
+#     # parser.add_argument("--p_variables", nargs='+', type=str, 
+#                         # help="input variables that affect var")
+#     parser.add_argument("--q_variables", nargs='*', type=str, 
+#                         help="input variables that do not affect var")
+#     parser.add_argument("--train_dev_split", nargs='+', type=float)
+#     parser.add_argument("--save_path", default='./')
+#     parser.add_argument("--save_by_role", action='store_true')
+
+#     args = parser.parse_args()
+
+#     base_path = args.base_path
+#     src_path = args.source_path
+#     model_name = args.model_name
+
+#     causal_var = args.causal_variable
+#     # p_vars = args.p_variables
+#     q_vars = args.q_variables
+#     train_dev_split = args.train_dev_split
+#     save_path = args.save_path
+#     save_by_role = args.save_by_role
+
+#     # if causal_var == 'race':
+#     #     var_name = 'race'
+#     #     var_func = race_to_race
+#     # elif causal_var == 'race_given_name':
+#     #     pass
+
+#     df_base = pd.read_csv(base_path)
+#     df_src = pd.read_csv(src_path)
+
+#     # df_base['var'] = df_base.apply(var_func, axis=1)
+#     # df_src['var'] = df_src.apply(var_func, axis=1)
+
+#     df_base['var'] = df_base[causal_var]
+#     df_src['var'] = df_src[causal_var]
+
+#     var_values = df_base['var'].unique()
+#     labels = df_base['pred'].unique()
+
+#     all_df_ctf = []
+#     for value in var_values:
+#         for base_label in labels:
+#             for src_label in labels:
+#                 print(f"{value}: {base_label} -> {src_label}")
+                
+#                 p_q_base_settings = df_base.loc[
+#                     (df_base['var'] == value) 
+#                     & (df_base['pred'] == src_label)
+#                 ]
+                                
+#                 dfs = []
+#                 for _, row in p_q_base_settings.iterrows():
+#                     if len(q_vars) > 0:
+#                         df = df_base.loc[(df_base[q_vars] == row[q_vars]).all(axis=1)]
+#                     else:
+#                         df = df_base
+#                     dfs.append(df)
+                    
+#                 if len(dfs) > 0:
+#                     q_settings = pd.concat(dfs, axis=0)
+#                     df_ctf = pd.DataFrame([])
+
+#                     # sampling base examples
+#                     q_base_settings = q_settings.loc[
+#                         (q_settings['pred'] == base_label)
+#                         # & (q_settings['race'] != src_race) # NEW
+#                     ]
+#                     # breakpoint()
+#                     df_ctf['base'] = q_base_settings['profile'].reset_index(drop=True)
+                    
+#                     # sampling source examples
+#                     df_race = df_src.loc[df_src['var'] == value] \
+#                     .sample(len(df_ctf), replace=True, random_state=42) \
+#                     .reset_index(drop=True)
+
+#                     df_ctf['source'] = df_race['profile']
+#                     df_ctf['base_label'] = base_label
+#                     df_ctf['src_label'] = src_label
+
+#                     # breakpoint()
+#                     df_ctf = pd.concat(
+#                         [df_ctf, q_base_settings[q_vars].reset_index(drop=True)],
+#                         axis=1
+#                     )
+
+#                     all_df_ctf.append(df_ctf)
+
+#     all_df_ctf = pd.concat(all_df_ctf, axis=0)
+
+#     # ctf_behavior_counts = []
+#     # for base_label in labels:
+#     #     for src_label in labels:
+#     #         base_src = all_df_ctf.loc[
+#     #             (all_df_ctf['base_label'] == base_label) & 
+#     #             (all_df_ctf['src_label'] == src_label)
+#     #         ]
+#     #         print(f"{base_label} {src_label}: {len(base_src)}")
+#     #         ctf_behavior_counts.append(len(base_src))
+
+#     # nonzero_counts = [count for count in ctf_behavior_counts if count != 0]
+#     # n_samples = min(nonzero_counts)
+
+#     # df_ctfs = []
+#     # for base_label in labels:
+#     #     for src_label in labels:
+#     #         df_base_src = all_df_ctf.loc[
+#     #             (all_df_ctf['base_label'] == base_label) & 
+#     #             (all_df_ctf['src_label'] == src_label)
+#     #         ].sample(n_samples)
+#     #         df_ctfs.append(df_base_src)
+
+#     # df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
+#     # .sample(frac=1).reset_index(drop=True)
+
+#     if 'uni' in q_vars:
+#         unis = all_df_ctf['uni'].unique()
+#         df_ctfs = []
+#         for uni in unis:
+#             df_uni = all_df_ctf.loc[all_df_ctf['uni'] == uni]
+#             df_uni = balance_labels(df_uni)
+#             df_ctfs.append(df_uni)
+#     elif 'role' in q_vars:
+#         roles = all_df_ctf['role'].unique()
+#         df_ctfs = []
+#         for role in roles:
+#             df_role = all_df_ctf.loc[all_df_ctf['role'] == role]
+#             df_role = balance_labels(df_role)
+#             df_ctfs.append(df_role)
+
+#     df_ctf_balanced = pd.concat(df_ctfs, axis=0) \
+#     .sample(frac=1).reset_index(drop=True)
+
+#     ctf_counts = df_ctf_balanced[['base_label','src_label']].value_counts()
+#     print(ctf_counts)
+#     # assert (ctf_counts[0] == ctf_counts[1]) and (ctf_counts[1] == ctf_counts[2]) \
+#     # and (ctf_counts[2] == ctf_counts[3])
+
+#     # doing manual tokenization because the model's output Yes or No tokens
+#     # can be different from the tokenizer's, weird.
+#     df_ctf_balanced[['base_label','src_label']] = df_ctf_balanced[['base_label','src_label']] \
+#     .replace('Yes', format_label('Yes', model_name)) \
+#     .replace('No', format_label('No', model_name))
+
+#     df_ctf_balanced = df_ctf_balanced.dropna()
+
+#     len_df = len(df_ctf_balanced)
+#     train_frac, dev_frac = train_dev_split
+
+#     train_end = int(round(train_frac * len_df))
+#     dev_end = int(
+#         round((train_frac + dev_frac) * len_df)
+#     )
+
+#     df_train = df_ctf_balanced[:train_end]
+#     df_dev = df_ctf_balanced[train_end:dev_end]
+#     df_test = df_ctf_balanced[dev_end:]
+
+#     if save_by_role: # only for hiring
+#         split_by_role_and_save_csv(df_train, save_path, 'train')
+#         split_by_role_and_save_csv(df_dev, save_path, 'dev')
+#         split_by_role_and_save_csv(df_test, save_path, 'test')
+#     else:
+#         os.makedirs(save_path, exist_ok=True)
+#         df_train.to_csv(os.path.join(save_path, 'train.csv'), index=False)
+#         df_dev.to_csv(os.path.join(save_path, 'dev.csv'), index=False)
+#         df_test.to_csv(os.path.join(save_path, 'test.csv'), index=False)
+
+# if __name__ == "__main__":
+#     main()
