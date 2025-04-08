@@ -63,6 +63,20 @@ NAMES = {
     ]
 }
 
+NAMES_TRAIN = {
+    "White": ['Jody', 'Conner', 'Haley', 'Scot', 'Kaley', 'Hunter', 'Bailey', 'Logan', 'Hayden', 'Gage', 'Beau', 'Jenna', 'Cody', 'Lori', 'Rocco', 'Marybeth', 'Dusty', 'Kaleigh', 'Suzanne', 'Griffin', 'Dixie', 'Sue', 'Misti', 'Katharine', 'Grayson', 'Jane', 'Lynne', 'Susan', 'Dalton', 'Lindsay', 'Cole', 'Jayne', 'Susannah', 'Ansley', 'Brody', 'Meghan', 'Jack', 'Abbey', 'Holli', 'Svetlana', 'Tanner', 'Mandi', 'Caitlin', 'Buddy', 'Laurie', 'Ginger', 'Graham', 'Kari', 'Dustin', 'Luann'],
+    "Black": ['Akeem', 'Darrius', 'Cortez', 'Antwan', 'Tawanda', 'Essence', 'Rashad', 'Alphonso', 'Deandre', 'Lashawn', 'Latrice', 'Demetrius', 'Jamaal', 'Lakisha', 'Lashanda', 'Sade', 'Cedric', 'Shaniqua', 'Kenyatta', 'Frantz', 'Shanice', 'Jermaine', 'Marquise', 'Demetria', 'Latoya', 'Queen', 'Shamika', 'Eboni', 'Tyrone', 'Tanesha', 'Shanika', 'Latasha', 'Shaquille', 'Tameka', 'Jarvis', 'Shaneka', 'Tyesha', 'Darius', 'Tyree', 'Tamika', 'Shawanda', 'Imani', 'Khadijah', 'Valencia', 'Jaylon', 'Ashanti', 'Jalen', 'Lashonda', 'Deshawn', 'Cornell'],
+    "Latino": ['Pablo', 'Anibal', 'Efrain', 'Guadalupe', 'Dayana', 'Beatriz', 'Luis', 'Francisco', 'Juan', 'Graciela', 'Wilfredo', 'Jesus', 'Ivonne', 'Diego', 'Maribel', 'Mariela', 'Esteban', 'Yesenia', 'Dulce', 'Miguel', 'Belkis', 'Edgardo', 'Magaly', 'Ramiro', 'Odalys', 'German', 'Luz', 'Gilberto', 'Yanet', 'Julio', 'Caridad', 'Mireya', 'Octavio', 'Gerardo', 'Jairo', 'Elba', 'Alondra', 'Alvaro', 'Mirtha', 'Aura', 'Nidia', 'Migdalia', 'Julissa', 'Javier', 'Eduardo', 'Juana', 'Cesar', 'Marisol', 'Andres', 'Flor'],
+    "Asian": ['Youngho', 'Dat', 'Seojin', 'Bao', 'Khanh', 'Xia Lin', 'Minseo', 'Li Na', 'Thanh', 'Hiro', 'Akira', 'Haeun', 'Sora', 'Anh', 'Hui Fang', 'Mai', 'Xiao Min', 'Chi', 'Duc', 'Yuki', 'Sangwoo', 'Bo Tao', 'Ming Hao', 'Yuna', 'Trang', 'Joon', 'Yui', 'Hyejin', 'Kyung', 'Long', 'Ai Mei', 'Hyun', 'Jiho', 'Minh', 'Hoa', 'Kaori', 'Jisung', 'Naoki', 'Sunhee', 'Lan Anh', 'Miyoung', 'Ping An', 'Huy', 'Diep', 'Jisoo', 'Jie Ming', 'Chao Feng', 'Tuan', 'Qiang Lei', 'Quang'],
+}
+
+NAMES_TEST = {
+    "White": ['Kathleen', 'Patti', 'Leigh', 'Jon', 'Connor', 'Heath', 'Susanne', 'Salvatore', 'Reid', 'Holden', 'Rhett', 'Stuart', 'Braden', 'Conor', 'Hayley', 'Meredith', 'Abby', 'Mckenna', 'Rusty', 'Gregg', 'Doyle', 'Colleen', 'Wyatt', 'Dawson', 'Beth', 'Carley', 'Lauri', 'Bret', 'Carson', 'Cade', 'Baylee', 'Bradley', 'Parker', 'Jodi', 'Molly', 'Kathryn', 'Tucker', 'Cooper', 'Lane', 'Scott', 'Colton', 'Brett', 'Hoyt', 'Jill', 'Kayleigh', 'Bart', 'Holly', 'Heather', 'Carly', 'Reed'],
+    "Black": ['Tyrell', 'Stephon', 'Tevin', 'Ayana', 'Deangelo', 'Demarcus', 'Jamel', 'Tamia', 'Trevon', 'Tierra', 'Amari', 'Donte', 'Ayanna', 'Latonya', 'Iesha', 'Demario', 'Lakeisha', 'Kierra', 'Devante', 'Latonia', 'Raheem', 'Jabari', 'Tanika', 'Jaquan', 'Sharonda', 'Marquis', 'Jamar', 'Shante', 'Shalonda', 'Roosevelt', 'Precious', 'Malik', 'Keon', 'Demetrice', 'Latanya', 'Nakia', 'Shameka', 'Deonte', 'Devonte', 'Sylvester', 'Davon', 'Lakeshia', 'Cedrick', 'Ebony', 'Lakesha', 'Javon', 'Aretha', 'Jalisa', 'Chiquita', 'Lamont'],
+    "Latino": ['Jose', 'Paola', 'Gonzalo', 'Esmeralda', 'Alejandra', 'Gustavo', 'Alejandro', 'Santiago', 'Zoraida', 'Guillermo', 'Humberto', 'Reinaldo', 'Noemi', 'Ivette', 'Yadira', 'Pedro', 'Agustin', 'Maritza', 'Ivelisse', 'Milagros', 'Xiomara', 'Osvaldo', 'Santos', 'Heriberto', 'Rigoberto', 'Hector', 'Moises', 'Maricela', 'Alba', 'Zoila', 'Mayra', 'Camilo', 'Haydee', 'Rafael', 'Viviana', 'Nereida', 'Hernan', 'Mirta', 'Lazaro', 'Raul', 'Jorge', 'Norberto', 'Rocio', 'Leonel', 'Iliana', 'Blanca', 'Mauricio', 'Lissette', 'Amparo', 'Arnaldo'],
+    "Asian": ['Yong', 'Shota', 'Linh', 'Zhi Hao', 'Li Wei', 'Rina', 'Taeyang', 'Minji', 'Jinwoo', 'Phuong', 'Yoshi', 'Saki', 'Quoc', 'Minjun', 'Jun Jie', 'Thuy', 'Hana', 'Dae', 'Hong Yu', 'Guang', 'Eunji', 'Lian Jie', 'Ming Zhu', 'Soojin', 'Lan Xi', 'Chen Wei', 'Ngoc', 'Kaito', 'Thao', 'Aoi', 'Hoang', 'Phuc', 'Sakura', 'Eri', 'Yuto', 'Mei', 'Huong', 'Ren', 'Xiao Long', 'Donghyun', 'Mei Ling', 'Mio', 'Wen Cheng', 'Wei Ning', 'Haruto', 'Ying Yue', 'Fang Zhi', 'Riku', 'Reina', 'Yeji'],
+}
+
 NAMES_GENDER = {
     "White": {
         "female": [
@@ -361,36 +375,6 @@ BIOS_SETTINGS = {
 """
 Sample a candidate profile
 """
-# def sample_one(settings, custom_stats=None):
-#     candidate = {}
-#     for key in settings:
-#         if custom_stats and key in custom_stats:
-#             candidate[key] = custom_stats[key]
-#         else:
-#             if key == 'letters_quality' or key == 'topic':
-#                 char_index = candidate['character_index']
-#                 candidate[key] = random.choice(settings[key][char_index])
-#             elif key == 'name':
-#                 # race = candidate['race']
-#                 # gender = candidate['gender']
-#                 # candidate['name'] = random.choice(settings['name'][race][gender])
-#                 race = candidate['race']
-#                 candidate['name'] = random.choice(settings['name'][race])
-#             else:
-#                 candidate[key] = random.choice(settings[key])
-        
-#     if 'gender' in candidate.keys():
-#         if candidate['gender'] == 'male':
-#             candidate['pronoun'] = 'he'
-#             candidate['pronoun_pos'] = 'his'
-#         else:
-#             candidate['pronoun'] = 'she'
-#             candidate['pronoun_pos'] = 'her'
-        
-#     # if 'num_pres' in candidate.keys():
-#     #     candidate['num_pres'] = random.choice(np.arange(candidate['num_ecs']))
-        
-#     return candidate
 
 def sample_one(settings, custom_stats=None):
     candidate = {}
@@ -551,6 +535,18 @@ def get_bdas_params(align_path, model_config):
     
     return intervention_params, Q, boundary_mask
 
+def get_das_params(align_path, model_config):
+    intervention_params = pv.RotatedSpaceIntervention(
+        embed_dim=model_config.hidden_size
+    )
+    intervention_params.load_state_dict(
+        torch.load(align_path, weights_only=True)
+    )
+    
+    rotate_layer = intervention_params.rotate_layer
+    Q = rotate_layer.weight
+    
+    return Q
 
 """
 A wrapper to run inference on <model> with <tokenizer>.
@@ -642,9 +638,6 @@ def get_race_pos(prompt):
         if word.split(".")[0] in ["White", "Black", "Latino", "Asian"]:
             race_idx = i - len(words)
     return race_idx
-
-# def get_race(prompt, pos):
-#     return prompt.split()[pos]
 
 def color_race(race):
     if 'White' in race:
