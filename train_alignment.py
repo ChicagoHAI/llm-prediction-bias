@@ -1,33 +1,47 @@
+# Standard library
 import argparse
 import os
-from tqdm import tqdm
 
+# Third-party libraries
 import numpy as np
-from sklearn.metrics import accuracy_score
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 from datasets import load_dataset
-from transformers import get_linear_schedule_with_warmup, \
-LlamaForCausalLM, LlamaTokenizer, LlamaConfig, \
-get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, \
-AutoConfig, AutoTokenizer, AutoModelForCausalLM
-from huggingface_hub import login
+from sklearn.metrics import accuracy_score
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    get_linear_schedule_with_warmup,
+)
+import pyvene as pv
 
-import sys
-sys.path.append('../pyvene/')
-import pyvene as pv # using local pyvene
-
+# Local libraries
 from utils import save_alignment
 
 """
 Calculate cross entropy between logits and 
 a single target label (can be batched)
 """
-def calculate_loss(logits, labels):
+def calculate_loss(intervenable, logits, labels):
+    shift_logits = logits[..., :, :].contiguous()
+    shift_labels = labels[..., :].contiguous()
+    # Flatten the tokens
     loss_fct = torch.nn.CrossEntropyLoss()
-    shift_labels = labels.to(logits.device)
-    loss = loss_fct(logits, shift_labels)
+    shift_logits = shift_logits.view(-1, intervenable.model_config.vocab_size)
+    shift_labels = shift_labels.view(-1)
+    # Enable model parallelism
+    shift_labels = shift_labels.to(shift_logits.device)
+    loss = loss_fct(shift_logits, shift_labels)
+
+    boundary_loss = 0
+    for k, v in intervenable.interventions.items():
+        if isinstance(v[0], pv.BoundlessRotatedSpaceIntervention):
+            boundary_loss = 1.0 * v[0].intervention_boundaries.sum()
+    loss += boundary_loss
+
     return loss
 
 
@@ -54,6 +68,9 @@ if __name__ == "__main__":
     parser.add_argument("--extra_steps", 
                         help="""The number of steps before {h_pos} to search.""", 
                         default=4, type=int)
+    parser.add_argument("--train_end", action='store_true', 
+                        help="Whether to train on tokens near the prompt's end."
+                        )
 
     parser.add_argument("--n_train", type=int, default=-1)
     parser.add_argument("--n_dev", type=int, default=-1)
@@ -80,43 +97,11 @@ if __name__ == "__main__":
     vene_type = args.intervention_type
     interchange_dim = args.interchange_dim
 
-    """
-    LLaMA 3:
-    - admissions-race-prompting_order-4th-sentence: -48
-    - admissions-race-prompting_modifier: 14 (right padding)
-    - admissions-race-prompting_order-4th: -48
-    - hiring-race-prompting_order-4th-sentence: -31 
-    Alpaca:
-    - admissions: 16 or 9 (p_var is 29, prod_var is 61)
-    - admissions-race-offset: 62
-    - hiring-race-offset: -37
-    - hire-dec: 18
-    - hire-dec-eval: 18
-    - hire-dec-names: 17
-    Mistral:
-    - admissions-race-prompting_order-4th-sentence: -50
-    - hiring-race-prompting_order-4th-sentence: -39
-    - admissions: 43
-    - admissions-race-offset: 96
-    - hiring-race-offset: -36
-    - hire-dec: 40
-    - hire-dec-eval: 18
-    - hire-dec-names: 17
-    Gemma:
-    - admissions-race-prompting_order-4th-sentence: -54
-    - hiring-race-prompting_order-4th-sentence: -41
-    - admissions: 14
-    - admissions-race-offset: 55
-    - hiring-race-offset: -43
-    - hire_dec: 15
-    - hire-dec-eval: 15
-    - hire-dec-names: 14
-    """
-
     h_start = args.horizontal_start
     h_end = args.horizontal_end
     h_step = args.horizontal_step
     num_extra_steps = args.extra_steps
+    train_end = args.train_end
 
     v_start = args.vertical_start
     v_end = args.vertical_end
@@ -128,7 +113,7 @@ if __name__ == "__main__":
     batch_size = args.batch_size
 
     save_alignments = args.save_alignments
-    device = 'cuda:1'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     config = AutoConfig.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -146,7 +131,6 @@ if __name__ == "__main__":
     ds = load_dataset('csv', data_files={
         'train': os.path.join(ds_path, 'train.csv'),
         'dev': os.path.join(ds_path, 'dev.csv'),
-        # 'test': os.path.join(ds_path, 'test.csv'),
     })
 
     if n_train > 0:
@@ -159,25 +143,15 @@ if __name__ == "__main__":
 
     train_loader = DataLoader(ds['train'], batch_size=batch_size)
     dev_loader = DataLoader(ds['dev'], batch_size=batch_size)
-    # test_loader = DataLoader(ds['test'], batch_size=batch_size)
 
     if v_end == -1:
         v_end = llama.config.num_hidden_layers
 
-    token_ids = tokenizer(ds['train']['base'][:100], 
-                        padding=True, 
-                        return_tensors="pt").input_ids
-    max_seq_len = token_ids.shape[1]
     extra_steps = num_extra_steps * h_step
-
     layers = list(range(v_start, v_end+1, v_step))
     positions = list(range(h_start-extra_steps, h_end+1, h_step))
 
-    train_end = True # whether to train tokens near the end
     if train_end:
-        # positions += list(
-        #     range((max_seq_len-1)-extra_steps, max_seq_len, h_step)
-        # )
         positions += list(range(-1-extra_steps, 0, h_step))
 
     # we search over layers and token positions
@@ -208,6 +182,7 @@ if __name__ == "__main__":
                 ])
                 intervenable = pv.IntervenableModel(config, llama)
                 key = list(intervenable.interventions.keys())[0]
+                # breakpoint()
                 intervenable.interventions[key][0].interchange_dim = torch.tensor(interchange_dim)
 
                 intervenable.set_device(device)
@@ -227,15 +202,11 @@ if __name__ == "__main__":
                     })
                 except:
                     pass
-            # optimizer = torch.optim.Adam(optimizer_params, lr=5e-5)
             optimizer = torch.optim.Adam(optimizer_params, lr=1e-4)
-            # optimizer = torch.optim.Adam(optimizer_params, lr=2e-4)
 
             scheduler = get_linear_schedule_with_warmup(
-            # scheduler = get_cosine_schedule_with_warmup(
                 optimizer,
                 num_warmup_steps=int(0.1 * total_steps),
-                # num_warmup_steps=int(0.05 * total_steps),
                 num_training_steps=total_steps,
             ) 
 
@@ -264,32 +235,29 @@ if __name__ == "__main__":
                     base = base_tokens.input_ids
                     src = source_tokens.input_ids
 
-                    # breakpoint()
-
                     if position < 0:
                         base_pos = base.shape[1] + position
                         src_pos = src.shape[1] + position
                     else:
                         base_pos = src_pos = position
 
-                    print(base_pos, src_pos)
+                    print(f"Base position: {base_pos}\nSource position: {src_pos}")
 
+                    print("Base tokens:")
                     print(tokenizer.batch_decode(base[:10, base_pos]))
+                    print("Source tokens:")
                     print(tokenizer.batch_decode(src[:10, src_pos]))
 
                     _, counterfactual_outputs = intervenable(
                         base_tokens,
                         [source_tokens],
-                        # {"sources->base": position},
                         unit_locations={"sources->base": (src_pos, base_pos)},
                     )
 
                     logits = counterfactual_outputs.logits[:, -1]
-                    loss = calculate_loss(logits, example['src_label'].to(device))
-                    epoch_iterator.set_postfix({"loss": f"{loss.item():.3f}"})
+                    loss = calculate_loss(intervenable, logits, example['src_label'].to(device))
 
-                    # breakpoint()
-                    
+                    epoch_iterator.set_postfix({"loss": f"{loss.item():.3f}"})                    
                     writer.add_scalar('training loss', loss, curr_step)
 
                     loss.backward()
@@ -324,7 +292,6 @@ if __name__ == "__main__":
                         _, counterfactual_outputs = intervenable(
                             base_tokens,
                             [source_tokens],
-                            # {"sources->base": position},
                             unit_locations={"sources->base": (src_pos, base_pos)},
                         )
 
