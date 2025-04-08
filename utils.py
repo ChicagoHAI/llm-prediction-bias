@@ -361,36 +361,6 @@ BIOS_SETTINGS = {
 """
 Sample a candidate profile
 """
-# def sample_one(settings, custom_stats=None):
-#     candidate = {}
-#     for key in settings:
-#         if custom_stats and key in custom_stats:
-#             candidate[key] = custom_stats[key]
-#         else:
-#             if key == 'letters_quality' or key == 'topic':
-#                 char_index = candidate['character_index']
-#                 candidate[key] = random.choice(settings[key][char_index])
-#             elif key == 'name':
-#                 # race = candidate['race']
-#                 # gender = candidate['gender']
-#                 # candidate['name'] = random.choice(settings['name'][race][gender])
-#                 race = candidate['race']
-#                 candidate['name'] = random.choice(settings['name'][race])
-#             else:
-#                 candidate[key] = random.choice(settings[key])
-        
-#     if 'gender' in candidate.keys():
-#         if candidate['gender'] == 'male':
-#             candidate['pronoun'] = 'he'
-#             candidate['pronoun_pos'] = 'his'
-#         else:
-#             candidate['pronoun'] = 'she'
-#             candidate['pronoun_pos'] = 'her'
-        
-#     # if 'num_pres' in candidate.keys():
-#     #     candidate['num_pres'] = random.choice(np.arange(candidate['num_ecs']))
-        
-#     return candidate
 
 def sample_one(settings, custom_stats=None):
     candidate = {}
@@ -551,6 +521,18 @@ def get_bdas_params(align_path, model_config):
     
     return intervention_params, Q, boundary_mask
 
+def get_das_params(align_path, model_config):
+    intervention_params = pv.RotatedSpaceIntervention(
+        embed_dim=model_config.hidden_size
+    )
+    intervention_params.load_state_dict(
+        torch.load(align_path, weights_only=True)
+    )
+    
+    rotate_layer = intervention_params.rotate_layer
+    Q = rotate_layer.weight
+    
+    return Q
 
 """
 A wrapper to run inference on <model> with <tokenizer>.
@@ -642,9 +624,6 @@ def get_race_pos(prompt):
         if word.split(".")[0] in ["White", "Black", "Latino", "Asian"]:
             race_idx = i - len(words)
     return race_idx
-
-# def get_race(prompt, pos):
-#     return prompt.split()[pos]
 
 def color_race(race):
     if 'White' in race:
