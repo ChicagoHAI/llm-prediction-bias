@@ -1,23 +1,33 @@
+# Standard library
 import argparse
-import copy
 import os
 import random
-import pandas as pd
+
+# Third-party libraries
 import numpy as np
-from sklearn import base
-from utils import format_prompt, ADMISSIONS_SETTINGS, ADMISSIONS_NAMES_SETTINGS, HIRING_SETTINGS, HIRING_NAMES_SETTINGS, sample_one
+import pandas as pd
+
+# Local application imports
+from utils import (
+    ADMISSIONS_NAMES_SETTINGS,
+    ADMISSIONS_SETTINGS,
+    HIRING_NAMES_SETTINGS,
+    HIRING_SETTINGS,
+    format_prompt,
+    sample_one,
+)
 
 parser = argparse.ArgumentParser(description="Generate controlled data for debiasing.")
-parser.add_argument('--base_task', choices=['Admissions', 'AdmissionsNames', 'Hiring', 'HiringNames'], default='AdmissionsNames', help='The task to generate data for.')
-parser.add_argument('--src_task', choices=['Admissions', 'AdmissionsNames', 'Hiring', 'HiringNames'], default='AdmissionsNames', help='The task to generate data for.')
-parser.add_argument('--num_samples', type=int, default=400, help='Number of samples')
-# parser.add_argument('--random_state', type=int, default=None, help='Random state for reproducibility')
+parser.add_argument('--base_task', choices=['Admissions', 'AdmissionsNames', 'Hiring', 'HiringNames'], default='AdmissionsNames', help='The base task to generate data for.')
+parser.add_argument('--src_task', choices=['Admissions', 'AdmissionsNames', 'Hiring', 'HiringNames'], default='AdmissionsNames', help='The source task to generate data for.')
+parser.add_argument('--n_samples', type=int, default=400, help='Number of samples')
+
 parser.add_argument('--base_template_path', type=str, default=None, help='Path to the base data template')
 parser.add_argument('--src_template_path', type=str, default=None, help='Path to the source data template')
 parser.add_argument('--save_path', type=str, default='./', help='Path to save the data')
 
 args = parser.parse_args()
-num_samples = args.num_samples
+num_samples = args.n_samples
 base_task = args.base_task
 src_task = args.src_task
 base_template_path = args.base_template_path
@@ -57,16 +67,6 @@ races = base_settings['race']
 base_template = open(base_template_path).read()
 src_template = open(src_template_path).read()
 
-# base_profiles = [
-#     sample_one(base_settings, {'uni': uni}) 
-#     for _ in range(num_samples) 
-#     for uni in base_settings['uni']
-# ]
-# src_profiles = [
-#     sample_one(src_settings) 
-#     for _ in range(num_samples * len(races) * len(base_settings['uni']))
-# ]
-
 base_profiles = [sample_one(base_settings) for _ in range(num_samples)]
 src_profiles = [sample_one(src_settings) for _ in range(num_samples * len(races))]
 
@@ -86,16 +86,6 @@ elif base_task == 'AdmissionsNames' or base_task == 'HiringNames':
             profile_['race'] = race
             profile_['name'] = random.choice(race_names)
             base_profiles_controlled.append(profile_)
-
-    # names = base_settings['name']
-    # for race in races:
-    #     gender = random.choice(base_settings['gender'])
-    #     race_names = names[race][gender]
-    #     for profile in base_profiles:
-    #         profile_ = profile.copy()
-    #         profile_['race'] = race
-    #         profile_['name'] = random.choice(race_names)
-    #         base_profiles_controlled.append(profile_)
 
 assert len(base_profiles_controlled) == len(src_profiles)
 
