@@ -4,11 +4,13 @@ import os
 
 import torch
 import numpy as np
+from transformers import AutoConfig
 
-import sys
-sys.path.append('../pyvene/')
-from pyvene.models.basic_utils import sigmoid_boundary
+# import sys
+# sys.path.append('../pyvene/')
 import pyvene as pv
+from pyvene.models.basic_utils import sigmoid_boundary
+
 
 NAMES = {
     "White": [
@@ -63,133 +65,6 @@ NAMES = {
     ]
 }
 
-NAMES_GENDER = {
-    "White": {
-        "female": [
-            "Abbey", "Abby", "Ansley", "Bailey", "Baylee", "Beth", "Caitlin", "Carley", "Carly", "Colleen",
-            "Dixie", "Ginger", "Haley", "Hayley", "Heather", "Holli", "Holly", "Jane", "Jayne", "Jenna",
-            "Jill", "Jodi", "Kaleigh", "Kaley", "Kari", "Katharine", "Kathleen", "Kathryn", "Kayleigh",
-            "Lauri", "Laurie", "Leigh", "Lindsay", "Lori", "Luann", "Lynne", "Mandi", "Marybeth", "Mckenna",
-            "Meghan", "Meredith", "Misti", "Molly", "Patti", "Sue", "Susan", "Susannah", "Susanne",
-            "Suzanne", "Svetlana"
-        ],
-        "male": [
-            "Bart", "Beau", "Braden", "Bradley", "Bret", "Brett", "Brody", "Buddy",
-            "Cade", "Carson", "Cody", "Cole", "Colton", "Conner", "Connor", "Conor", "Cooper", "Dalton",
-            "Dawson", "Doyle", "Dustin", "Dusty", "Gage", "Graham", "Grayson", "Gregg", "Griffin", "Hayden",
-            "Heath", "Holden", "Hoyt", "Hunter", "Jack", "Jody", "Jon", "Lane", "Logan", "Parker",
-            "Reed", "Reid", "Rhett", "Rocco", "Rusty", "Salvatore", "Scot", "Scott", "Stuart", "Tanner",
-            "Tucker", "Wyatt"
-        ]
-    },
-    "Black": {
-        "female": [
-            "Amari", "Aretha", "Ashanti", "Ayana", "Ayanna", "Chiquita", "Demetria", "Eboni", "Ebony", "Essence",
-            "Iesha", "Imani", "Jalisa", "Khadijah", "Kierra", "Lakeisha", "Lakesha", "Lakeshia", "Lakisha",
-            "Lashanda", "Lashonda", "Latanya", "Latasha", "Latonia", "Latonya", "Latoya", "Latrice", "Nakia",
-            "Precious", "Queen", "Sade", "Shalonda", "Shameka", "Shamika", "Shaneka", "Shanice", "Shanika",
-            "Shaniqua", "Shante", "Sharonda", "Shawanda", "Tameka", "Tamia", "Tamika", "Tanesha", "Tanika",
-            "Tawanda", "Tierra", "Tyesha", "Valencia"
-        ],
-        "male": [
-            "Akeem", "Alphonso", "Antwan", "Cedric", "Cedrick",
-            "Cornell", "Cortez", "Darius", "Darrius", "Davon", "Deandre", "Deangelo", "Demarcus", "Demario",
-            "Demetrice", "Demetrius", "Deonte", "Deshawn", "Devante", "Devonte", "Donte", "Frantz", "Jabari",
-            "Jalen", "Jamaal", "Jamar", "Jamel", "Jaquan", "Jarvis", "Javon", "Jaylon", "Jermaine", "Kenyatta",
-            "Keon", "Lamont", "Lashawn", "Malik", "Marquis", "Marquise", "Raheem", "Rashad", "Roosevelt",
-            "Shaquille", "Stephon", "Sylvester", "Tevin", "Trevon", "Tyree", "Tyrell", "Tyrone"
-        ]
-    },
-    "Latino": {
-        "female": [
-            "Alba", "Alejandra", "Alondra", "Amparo", "Aura", "Beatriz", "Belkis", "Blanca", "Caridad",
-            "Dayana", "Dulce", "Elba", "Esmeralda", "Flor", "Graciela", "Guadalupe", "Haydee", "Iliana",
-            "Ivelisse", "Ivette", "Ivonne", "Juana", "Julissa", "Lissette", "Luz", "Magaly", "Maribel",
-            "Maricela", "Mariela", "Marisol", "Maritza", "Mayra", "Migdalia", "Milagros", "Mireya",
-            "Mirta", "Mirtha", "Nereida", "Nidia", "Noemi", "Odalys", "Paola", "Rocio", "Viviana",
-            "Xiomara", "Yadira", "Yanet", "Yesenia", "Zoila", "Zoraida"
-        ],
-        "male": [
-            "Agustin", "Alejandro", "Alvaro",
-            "Andres", "Anibal", "Arnaldo", "Camilo", "Cesar", "Diego", "Edgardo", "Eduardo", "Efrain",
-            "Esteban", "Francisco", "Gerardo", "German", "Gilberto", "Gonzalo", "Guillermo", "Gustavo",
-            "Hector", "Heriberto", "Hernan", "Humberto", "Jairo", "Javier", "Jesus", "Jorge", "Jose",
-            "Juan", "Julio", "Lazaro", "Leonel", "Luis", "Mauricio", "Miguel", "Moises", "Norberto",
-            "Octavio", "Osvaldo", "Pablo", "Pedro", "Rafael", "Ramiro", "Raul", "Reinaldo", "Rigoberto",
-            "Santiago", "Santos", "Wilfredo"
-        ]
-    },
-    "Asian": {
-        "female": [
-            "Ai Mei", "Xia Lin", "Lan Anh", "Mei Ling", "Xiao Min", "Lian Jie", "Hong Yu", "Fang Zhi", "Ying Yue",
-            "Wei Ning", "Lan Xi", "Hui Fang", "Ming Zhu", "Jisoo", "Minji", "Hana", "Yuna", "Eunji", "Seojin",
-            "Hyejin", "Soojin", "Sunhee", "Miyoung", "Haeun", "Yeji", "Mio", "Chi", "Linh", "Ngoc", "Phuong",
-            "Thao", "Thanh", "Hoa", "Huong", "Trang", "Diep", "Li Na", "Sakura", "Yui", "Aoi", "Eri", "Mei",
-            "Kaori", "Rina", "Yuki", "Saki", "Reina", "Mai", "Thuy", "Minseo"
-        ],
-        "male": [
-            "Li Wei", "Wen Cheng", "Ming Hao", "Xiao Long", "Chao Feng", "Jie Ming", "Ping An", "Qiang Lei",
-            "Jun Jie", "Zhi Hao", "Anh", "Duc", "Minh", "Tuan", "Huy", "Khanh", "Bao", "Long", "Quang", "Phuc",
-            "Chen Wei", "Bo Tao", "Guang", "Hoang", "Jisung", "Hyun", "Minjun", "Jiho", "Kyung", "Dae",
-            "Sangwoo", "Jinwoo", "Youngho", "Yong", "Haruto", "Ren", "Akira", "Kaito", "Yuto", "Riku", "Hiro",
-            "Naoki", "Shota", "Sora", "Taeyang", "Donghyun", "Quoc", "Dat", "Joon", "Yoshi"
-        ]
-    }
-}
-
-NAMES_CAP = {
-    "White": [
-        "ABBEY", "ABBY", "ANSLEY", "BAILEY", "BAYLEE", "BETH", "CAITLIN", "CARLEY", "CARLY", "COLLEEN",
-        "DIXIE", "GINGER", "HALEY", "HAYLEY", "HEATHER", "HOLLI", "HOLLY", "JANE", "JAYNE", "JENNA",
-        "JILL", "JODI", "KALEIGH", "KALEY", "KARI", "KATHARINE", "KATHLEEN", "KATHRYN", "KAYLEIGH",
-        "LAURI", "LAURIE", "LEIGH", "LINDSAY", "LORI", "LUANN", "LYNNE", "MANDI", "MARYBETH", "MCKENNA",
-        "MEGHAN", "MEREDITH", "MISTI", "MOLLY", "PATTI", "SUE", "SUSAN", "SUSANNAH", "SUSANNE",
-        "SUZANNE", "SVETLANA", "BART", "BEAU", "BRADEN", "BRADLEY", "BRET", "BRETT", "BRODY", "BUDDY",
-        "CADE", "CARSON", "CODY", "COLE", "COLTON", "CONNER", "CONNOR", "CONOR", "COOPER", "DALTON",
-        "DAWSON", "DOYLE", "DUSTIN", "DUSTY", "GAGE", "GRAHAM", "GRAYSON", "GREGG", "GRIFFIN", "HAYDEN",
-        "HEATH", "HOLDEN", "HOYT", "HUNTER", "JACK", "JODY", "JON", "LANE", "LOGAN", "PARKER",
-        "REED", "REID", "RHETT", "ROCCO", "RUSTY", "SALVATORE", "SCOT", "SCOTT", "STUART", "TANNER",
-        "TUCKER", "WYATT"
-    ],
-    "Black": [
-        "AMARI", "ARETHA", "ASHANTI", "AYANA", "AYANNA", "CHIQUITA", "DEMETRIA", "EBONI", "EBONY", "ESSENCE",
-        "IESHA", "IMANI", "JALISA", "KHADIJAH", "KIERRA", "LAKEISHA", "LAKESHA", "LAKESHIA", "LAKISHA",
-        "LASHANDA", "LASHONDA", "LATANYA", "LATASHA", "LATONIA", "LATONYA", "LATOYA", "LATRICE", "NAKIA",
-        "PRECIOUS", "QUEEN", "SADE", "SHALONDA", "SHAMEKA", "SHAMIKA", "SHANEKA", "SHANICE", "SHANIKA",
-        "SHANIQUA", "SHANTE", "SHARONDA", "SHAWANDA", "TAMEKA", "TAMIA", "TAMIKA", "TANESHA", "TANIKA",
-        "TAWANDA", "TIERRA", "TYESHA", "VALENCIA", "AKEEM", "ALPHONSO", "ANTWAN", "CEDRIC", "CEDRICK",
-        "CORNELL", "CORTEZ", "DARIUS", "DARRIUS", "DAVON", "DEANDRE", "DEANGELO", "DEMARCUS", "DEMARIO",
-        "DEMETRICE", "DEMETRIUS", "DEONTE", "DESHAWN", "DEVANTE", "DEVONTE", "DONTE", "FRANTZ", "JABARI",
-        "JALEN", "JAMAAL", "JAMAR", "JAMEL", "JAQUAN", "JARVIS", "JAVON", "JAYLON", "JERMAINE", "KENYATTA",
-        "KEON", "LAMONT", "LASHAWN", "MALIK", "MARQUIS", "MARQUISE", "RAHEEM", "RASHAD", "ROOSEVELT",
-        "SHAQUILLE", "STEPHON", "SYLVESTER", "TEVIN", "TREVON", "TYREE", "TYRELL", "TYRONE"
-    ],
-    "Latino": [
-        "ALBA", "ALEJANDRA", "ALONDRA", "AMPARO", "AURA", "BEATRIZ", "BELKIS", "BLANCA", "CARIDAD",
-        "DAYANA", "DULCE", "ELBA", "ESMERALDA", "FLOR", "GRACIELA", "GUADALUPE", "HAYDEE", "ILIANA",
-        "IVELISSE", "IVETTE", "IVONNE", "JUANA", "JULISSA", "LISSETTE", "LUZ", "MAGALY", "MARIBEL",
-        "MARICELA", "MARIELA", "MARISOL", "MARITZA", "MAYRA", "MIGDALIA", "MILAGROS", "MIREYA",
-        "MIRTA", "MIRTHA", "NEREIDA", "NIDIA", "NOEMI", "ODALYS", "PAOLA", "ROCIO", "VIVIANA",
-        "XIOMARA", "YADIRA", "YANET", "YESENIA", "ZOILA", "ZORAIDA", "AGUSTIN", "ALEJANDRO", "ALVARO",
-        "ANDRES", "ANIBAL", "ARNALDO", "CAMILO", "CESAR", "DIEGO", "EDGARDO", "EDUARDO", "EFRAIN",
-        "ESTEBAN", "FRANCISCO", "GERARDO", "GERMAN", "GILBERTO", "GONZALO", "GUILLERMO", "GUSTAVO",
-        "HECTOR", "HERIBERTO", "HERNAN", "HUMBERTO", "JAIRO", "JAVIER", "JESUS", "JORGE", "JOSE",
-        "JUAN", "JULIO", "LAZARO", "LEONEL", "LUIS", "MAURICIO", "MIGUEL", "MOISES", "NORBERTO",
-        "OCTAVIO", "OSVALDO", "PABLO", "PEDRO", "RAFAEL", "RAMIRO", "RAUL", "REINALDO", "RIGOBERTO",
-        "SANTIAGO", "SANTOS", "WILFREDO"
-    ],
-    "Asian": [
-        "LI WEI", "WEN CHENG", "MING HAO", "XIAO LONG", "CHAO FENG", "JIE MING", "PING AN", "QIANG LEI", "JUN JIE", "ZHI HAO",
-        "ANH", "DUC", "MINH", "TUAN", "HUY", "KHANH", "BAO", "LONG", "QUANG", "PHUC", "CHEN WEI", "BO TAO", "GUANG", "HOANG", 
-        "JISUNG", "HYUN", "MINJUN", "JIHO", "KYUNG", "DAE", "SANGWOO", "JINWOO", "YOUNGHO", "YONG", "AI MEI", "XIA LIN",
-        "HARUTO", "REN", "AKIRA", "KAITO", "YUTO", "RIKU", "HIRO", "NAOKI", "SHOTA", "SORA", "TAEYANG", "DONGHYUN", "LAN ANH",
-        "MEI LING", "XIAO MIN", "LIAN JIE", "HONG YU", "FANG ZHI", "YING YUE", "WEI NING", "LAN XI", "HUI FANG", "MING ZHU",
-        "JISOO", "MINJI", "HANA", "YUNA", "EUNJI", "SEOJIN", "HYEJIN", "SOOJIN", "SUNHEE", "MIYOUNG", "HAEUN", "YEJI", "MIO",
-        "CHI", "LINH", "NGOC", "PHUONG", "THAO", "THANH", "HOA", "HUONG", "TRANG", "DIEP", "QUOC", "DAT", "LI NA", "JOON",
-        "SAKURA", "YUI", "AOI", "ERI", "MEI", "KAORI", "RINA", "YUKI", "SAKI", "REINA", "MAI", "THUY", "MINSEO", "YOSHI"
-    ]
-}
-
 NAMES_LASTNAMES = {
     "White": [
         "Abbey Smith", "Abby Johnson", "Ansley Williams", "Bailey Brown", "Baylee Jones", "Beth Miller", "Caitlin Davis", "Carley Wilson", "Carly Anderson", "Colleen Taylor",
@@ -239,16 +114,6 @@ NAMES_LASTNAMES = {
     ]
 }
 
-
-
-HIRE_DEC_NAMES_SETTINGS = {
-    'race': ['White', 'Black', 'Latino', 'Asian'],
-    'name': NAMES,
-    'experience': np.arange(0, 21, step=1),
-    'degree': ['High school', 'Computer Science B.S.', 'Computer Science M.S.', 'Computer Science Ph.D.'],
-    'coding': np.arange(0, 6, step=1),
-}
-
 HIRING_SETTINGS = {
     'role' : [
         "CTO", "Physician", "Secretary", "Carpenter", "Cashier", "Receptionist",
@@ -270,8 +135,6 @@ HIRING_SETTINGS = {
 HIRING_NAMES_SETTINGS = {
     'race': ['White', 'Black', 'Latino', 'Asian'],
     'name': NAMES,
-    # 'name': NAMES_CAP,
-    # 'name': NAMES_LASTNAMES,
     'role' : [
         "CTO", "Physician", "Secretary", "Carpenter", "Cashier", "Receptionist",
         "Software Engineer", "Data Scientist", "Marketing Manager", "Sales Representative",
@@ -288,35 +151,25 @@ HIRING_NAMES_SETTINGS = {
     'referrals': [0, 1, 2, 3]
 }
 
-HIRING_SETTINGS_SHORT = {
+ADMISSIONS_SETTINGS = {
+    'uni': ["Harvard University", "Stanford University", "University of Chicago", "University of Alabama", "University of California, Berkeley", "University of Michigan", "University of Southern California", "Northwestern University", "University of Texas at Austin", "University of North Carolina at Chapel Hill", "Florida State University", "University of Miami", "University of Minnesota", "Howard University", "University of Wisconsin-Madison", "University of Maryland, College Park", "University of Arizona", "University of Pittsburgh", "University of Iowa", "University of Notre Dame"],
     'race': ['White', 'Black', 'Latino', 'Asian'],
-    'experience': np.arange(0, 21, step=1),
-    'degree': ['High school', 'Computer Science B.S.', 'Computer Science M.S.', 'Computer Science Ph.D.'],
-    'coding': np.arange(0, 6, step=1),
+    'gpa': np.arange(1.0, 4.1, step=0.1),
+    'num_ecs': np.arange(0, 9, step=1),
+    'num_letters': [0, 1, 2, 3],
 }
 
 ADMISSIONS_NAMES_SETTINGS = {
     'uni': ["Harvard University", "Stanford University", "University of Chicago", "University of Alabama", "University of California, Berkeley", "University of Michigan", "University of Southern California", "Northwestern University", "University of Texas at Austin", "University of North Carolina at Chapel Hill", "Florida State University", "University of Miami", "University of Minnesota", "Howard University", "University of Wisconsin-Madison", "University of Maryland, College Park", "University of Arizona", "University of Pittsburgh", "University of Iowa", "University of Notre Dame"],
     'race': ['White', 'Black', 'Latino', 'Asian'],
-    # 'gender': ['male', 'female'],
     'name': NAMES,
-    # 'name': NAMES_CAP,
-    # 'name': NAMES_LASTNAMES,
-    # 'name': NAMES_GENDER,
     'gpa': np.arange(1.0, 4.1, step=0.1),
     'num_ecs': np.arange(0, 9, step=1),
     'num_letters': [0, 1, 2, 3],
 }
 
-ADMISSIONS_SETTINGS = {
-    'uni': ["Harvard University", "Stanford University", "University of Chicago", "University of Alabama", "University of California, Berkeley", "University of Michigan", "University of Southern California", "Northwestern University", "University of Texas at Austin", "University of North Carolina at Chapel Hill", "Florida State University", "University of Miami", "University of Minnesota", "Howard University", "University of Wisconsin-Madison", "University of Maryland, College Park", "University of Arizona", "University of Pittsburgh", "University of Iowa", "University of Notre Dame"],
-    'race': ['White', 'Black', 'Latino', 'Asian'],
-    # 'gpa': np.arange(1.0, 4.01, step=0.01),
-    'gpa': np.arange(1.0, 4.1, step=0.1),
-    'num_ecs': np.arange(0, 9, step=1),
-    'num_letters': [0, 1, 2, 3],
-}
-
+# Outdated: this is a more complex Admissions (with explicit race) setting
+# that features more variables than the variant described in the paper.
 BIOS_SETTINGS = {
     'gender': ['male', 'female'],
     'race': ['white', 'black', 'latino', 'asian'],
@@ -326,7 +179,7 @@ BIOS_SETTINGS = {
     'gpa': [2.0, 3.0, 3.5, 3.8, 4.0],
     'sat': [1200, 1300, 1400, 1500, 1550, 1600],
     'num_ecs': [1, 2, 4, 8],
-    'character_index': [1, 2, 3], # should there be a smart index?
+    'character_index': [1, 2, 3],
     'letters_quality': {
         1: ['2 weak', '1 good, 1 weak'],
         2: ['1 strong, 1 weak', '2 good'],
@@ -357,11 +210,12 @@ BIOS_SETTINGS = {
     }
 }
 
-
 """
-Sample a candidate profile
+Samples a candidate profile given a dictionary of variable ranges.
+Parameters:
+- settings: a dictionary of variables and their ranges.
+- custom_stats: a dictionary of variables and values to partially specify a profile.
 """
-
 def sample_one(settings, custom_stats=None):
     candidate = {}
     for key in settings:
@@ -388,7 +242,7 @@ def sample_one(settings, custom_stats=None):
     return candidate
 
 """
-Get an applicant's race from a prompt
+Gets an applicant's race from a prompt.
 """
 def get_race(prompt):
     words = prompt.split(" ")
@@ -397,13 +251,16 @@ def get_race(prompt):
         if race in ["White", "Black", "Latino", "Asian"]:
             return race
 
-
+"""
+Populates a prompt template with a sampled applicant profile.
+"""
 def format_prompt(template, candidate, 
                   dataset: Literal['admissions_full', 
                                  'admissions_short', 
+                                 'admissions_names'
                                  'hiring_short', 
-                                 'hire_dec_eval', 
-                                 'hire_dec_names'] = 'admissions_short'):
+                                #  'hire_dec_eval', 
+                                 'hiring_names'] = 'admissions_short'):
     if dataset == 'admissions_full':
         prompt = template.format(
             pronoun_pos = candidate['pronoun_pos'],
@@ -416,7 +273,6 @@ def format_prompt(template, candidate,
             gpa = candidate['gpa'],
             sat = candidate['sat'],
             num_ecs = candidate['num_ecs'],
-            # num_pres = candidate['num_pres'],
             letters_quality = candidate['letters_quality'],
             topic = candidate['topic']
         )
@@ -437,14 +293,14 @@ def format_prompt(template, candidate,
             num_letters = candidate['num_letters'],
             university = candidate['uni'],
         )
+    # elif dataset == 'hiring_short':
+    #     prompt = template.format(
+    #         race = candidate['race'],
+    #         exp = candidate['experience'],
+    #         degree = candidate['degree'],
+    #         coding = candidate['coding']
+    #     )
     elif dataset == 'hiring_short':
-        prompt = template.format(
-            race = candidate['race'],
-            exp = candidate['experience'],
-            degree = candidate['degree'],
-            coding = candidate['coding']
-        )
-    elif dataset == 'hire_dec_eval':
         prompt = template.format(
             role = candidate['role'],
             race = candidate['race'],
@@ -463,10 +319,11 @@ def format_prompt(template, candidate,
         )
     return prompt
 
-
 """
-Tokenize the label. The returned token index is somewhat
-arbitrary because it depends on the tokenizer.
+Tokenizes the label. We need manual tokenization because, for some
+unknown reason, models have different token indices for the same
+token, e.g., the "Yes" token in the prompt can be
+different from the one that it generates when giving an answer.
 """
 def format_label(label_eng, model_name):
     if model_name == "llama3":
@@ -490,12 +347,14 @@ def format_label(label_eng, model_name):
         else:
             return 1294
 
-
 """
-Given an Intervenable object with BDAS intervention, 
-return its rotation matrix and boundary masks
+Returns a `BoundlessRotatedSpaceIntervention` object and
+its corresponding rotation matrix and boundary mask.
+Parameters:
+- align_path: path to the directory storing the alignment object.
+- model_config: the language model's config file.
 """
-def get_bdas_params(align_path, model_config):
+def get_bdas_params(align_path: str, model_config: AutoConfig):
     intervention_params = pv.BoundlessRotatedSpaceIntervention(
         embed_dim=model_config.hidden_size
     )
@@ -521,6 +380,9 @@ def get_bdas_params(align_path, model_config):
     
     return intervention_params, Q, boundary_mask
 
+"""
+Similar to `get_bdas_param` but for `RotatedSpaceIntervention` objects.
+"""
 def get_das_params(align_path, model_config):
     intervention_params = pv.RotatedSpaceIntervention(
         embed_dim=model_config.hidden_size
@@ -535,10 +397,11 @@ def get_das_params(align_path, model_config):
     return Q
 
 """
-A wrapper to run inference on <model> with <tokenizer>.
+A wrapper to run inference on `model` with `tokenizer`.
 Accepts a list of strings and returns a list of strings.
+Useful for debugging.
 """
-def llm_predict(model, tokenizer, device, input_batch, 
+def llm_predict(model, tokenizer, input_batch, 
                 generate=False, gen_length=None):
     input_ids = tokenizer(input_batch, 
                           return_tensors="pt", 
@@ -549,7 +412,6 @@ def llm_predict(model, tokenizer, device, input_batch,
         if generate:
             output_ids = model.generate(**input_ids, 
                                         max_length=input_len+gen_length,
-                                        # temperature=0.5,
                                         )
             output_preds = tokenizer.batch_decode(output_ids[:, input_len:], 
                                                   skip_special_tokens=False, 
@@ -562,9 +424,17 @@ def llm_predict(model, tokenizer, device, input_batch,
             
     return output_preds
 
-
 """
-Saving a trained alignment.
+We write our own functions for saving and loading alignments for our
+convenience, primarily because of the way our code searches over
+representation locations to find alignments.
+Parameters:
+- intervenable: an IntervenableModel object.
+- save_path: path to the save directory.
+- save_name: name of the directory within `save_path`. This is usually
+for recording the (token, layer) position of the alignment, while
+`save_path` specifies a training setting, e.g., number of training
+samples.
 """
 def save_alignment(intervenable, save_path, save_name):
     key = list(intervenable.interventions.keys())[0]
@@ -576,10 +446,14 @@ def save_alignment(intervenable, save_path, save_name):
 
 
 """
-Load a trained alignment. Assumes the user is only
+Loads a trained alignment. Assumes the user is only
 loading in one alignment potentially across multiple layers.
+Parameters:
+- save_path: path to load in the alignment.
+- config: the LM's config.
+- model: the LM itself.
 """
-def load_alignment(save_path, config, model, src_save_path=None,
+def load_alignment(save_path, config, model, 
                    alignment_type=pv.BoundlessRotatedSpaceIntervention,
                    interchange_dim=None):
     intervenable = pv.IntervenableModel(config, model)
@@ -594,30 +468,34 @@ def load_alignment(save_path, config, model, src_save_path=None,
             torch.load(model_params_path, weights_only=True)
         )
 
-        if src_save_path != None:
-            src_params_path = os.path.join(src_save_path, "model_params.pt")
-            src_intervention_params = alignment_type(
-                embed_dim=model.config.hidden_size
-            )
-            src_intervention_params.load_state_dict(
-                torch.load(src_params_path, weights_only=True)
-            )
-            src_rotate = src_intervention_params.rotate_layer
-            intervention_params.set_src_rotate_layer(src_rotate)
+        # if src_save_path != None:
+        #     src_params_path = os.path.join(src_save_path, "model_params.pt")
+        #     src_intervention_params = alignment_type(
+        #         embed_dim=model.config.hidden_size
+        #     )
+        #     src_intervention_params.load_state_dict(
+        #         torch.load(src_params_path, weights_only=True)
+        #     )
+        #     src_rotate = src_intervention_params.rotate_layer
+        #     intervention_params.set_src_rotate_layer(src_rotate)
 
         keys = list(intervenable.representations.keys())
         for key in keys:
             hook = intervenable.interventions[key][1]
             intervenable.interventions[key] = (intervention_params, hook)
+    # else:
 
-    else:
-        if interchange_dim != None:
-            keys = list(intervenable.representations.keys())
-            for key in keys:
-                intervenable.interventions[key][0].interchange_dim = torch.tensor(interchange_dim)
+    # manually setting a subspace dimensionality
+    if interchange_dim != None:
+        keys = list(intervenable.representations.keys())
+        for key in keys:
+            intervenable.interventions[key][0].interchange_dim = torch.tensor(interchange_dim)
     
     return intervenable
 
+"""
+Gets the index of the `race` position in the prompt.
+"""
 def get_race_pos(prompt):
     words = prompt.split()
     for i, word in enumerate(words):
