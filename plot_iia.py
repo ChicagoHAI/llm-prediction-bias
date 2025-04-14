@@ -2,11 +2,9 @@ import numpy as np
 import argparse
 import os
 from datasets import load_dataset
-from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import seaborn as sns
-from transformers import LlamaTokenizer, LlamaConfig, \
-AutoConfig, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 
 parser = argparse.ArgumentParser()
@@ -29,7 +27,7 @@ parser.add_argument("--vertical_end", type=int, default=-1)
 parser.add_argument("--vertical_step", type=int, default=1)
 
 parser.add_argument("--extra_steps", 
-                    help="""The number of steps before {h_pos} to search.""", 
+                    help="""The number of steps before `horizontal_start` to search.""", 
                     default=4, type=int)
 
 parser.add_argument("--save_file", help="Path to save the resulting plot.")
@@ -51,7 +49,6 @@ v_end = args.vertical_end
 v_step = args.vertical_step
 
 os.makedirs(os.path.dirname(save_file), exist_ok=True)
-# sns.set_context("notebook")
 
 config = AutoConfig.from_pretrained(name)
 tokenizer = AutoTokenizer.from_pretrained(name)
@@ -60,7 +57,6 @@ tokenizer.pad_token = tokenizer.eos_token
 
 ds = load_dataset('csv', data_files={
     'train': os.path.join(ds_path, 'train.csv'),
-    # 'test': os.path.join(ds_path, 'test.csv'),
 })
 
 if v_end == -1:
@@ -71,8 +67,6 @@ token_ids = tokenizer(ds['train']['base'][:50],
                       return_tensors="pt").input_ids
 max_seq_len = token_ids.shape[1]
 extra_steps = num_extra_steps * h_step
-
-# breakpoint()
 
 layers = list(range(v_start, v_end+1, v_step))
 positions = list(range(h_start-extra_steps, h_end+1, h_step))
@@ -106,26 +100,27 @@ tokens = tokenizer.batch_decode(token_ids[0])
 tokens_search = tokens[h_start-extra_steps : h_end+1 : h_step] \
 + tokens[(max_seq_len-1)-extra_steps : max_seq_len : h_step]
 
-# breakpoint()
-
 x_labels = []
 for token, pos in zip(tokens_search, positions):
-    if pos == -93 or pos == -92:
+    if pos in range(-94, -92) or pos in range(-72, -69):
         token = '<name>'
+    if pos in range(-91, -88):
+        token = '<uni>'
+    if pos in range(-68, -67):
+        token = '<role>'
     if token.strip() in ['Asian', 'Black', 'Latino', 'White']:
         token = '<race>'
     if '\n' in token:
         token = token.replace('\n', '\\n')
+    if pos < -1 - extra_steps:
+        pos = max_seq_len + pos
     x_labels.append(f'{token} ({pos})')
 
 # Plotting
 plt.figure(figsize=(13, 9))
-# plt.figure(figsize=(13, 12)) # for when there are many layers
-# plt.figure(figsize=(13, 14))
 sns.heatmap(np.flip(res_matrix, axis=0), 
             annot=True, 
-            # annot_kws={'size':20}, 
-            annot_kws={'size':18}, 
+            annot_kws={'size':22}, 
             fmt=".2f", cmap="magma_r", cbar=False, 
             xticklabels=x_labels, yticklabels=layers_r)
 

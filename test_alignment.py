@@ -5,31 +5,13 @@ from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import accuracy_score
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from datasets import load_dataset
-from transformers import get_linear_schedule_with_warmup, \
-LlamaForCausalLM, LlamaTokenizer, LlamaConfig, \
-get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, \
-AutoConfig, AutoTokenizer, AutoModelForCausalLM
-from huggingface_hub import login
+from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
 
-import sys
-sys.path.append('../pyvene/')
-import pyvene as pv # using local pyvene
+import pyvene as pv
 
-from utils import load_alignment, save_alignment
-
-"""
-Calculate cross entropy between logits and 
-a single target label (can be batched)
-"""
-def calculate_loss(logits, labels):
-    loss_fct = torch.nn.CrossEntropyLoss()
-    shift_labels = labels.to(logits.device)
-    loss = loss_fct(logits, shift_labels)
-    return loss
-
+from utils import load_alignment
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -43,7 +25,6 @@ if __name__ == "__main__":
     parser.add_argument("--intervention_type", choices=["bdas", "das"], default="bdas")
     parser.add_argument("--interchange_dim", type=int)
 
-    # Training args
     parser.add_argument("--horizontal_start", type=int, default=0)
     parser.add_argument("--horizontal_end", type=int, default=50)
     parser.add_argument("--horizontal_step", type=int, default=1)
@@ -55,6 +36,9 @@ if __name__ == "__main__":
     parser.add_argument("--extra_steps", 
                         help="""The number of steps before {h_pos} to search.""", 
                         default=4, type=int)
+    parser.add_argument("--train_end", action='store_true', 
+                        help="Whether to train on tokens near the prompt's end."
+                        )
 
     parser.add_argument("--n_test", type=int, default=-1)
     parser.add_argument("--batch_size", help="""Training batch size.""",
@@ -67,7 +51,7 @@ if __name__ == "__main__":
 
     ds_path = args.dataset_path
     model_name = args.model_name
-    # align_path = args.alignment_path
+    align_path = args.alignment_path
     vene_type = args.intervention_type
     interchange_dim = args.interchange_dim
 
@@ -75,6 +59,7 @@ if __name__ == "__main__":
     h_end = args.horizontal_end
     h_step = args.horizontal_step
     num_extra_steps = args.extra_steps
+    train_end = args.train_end
 
     v_start = args.vertical_start
     v_end = args.vertical_end
@@ -83,7 +68,7 @@ if __name__ == "__main__":
     n_test = args.n_test
     batch_size = args.batch_size
 
-    device = 'cuda:1'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     config = AutoConfig.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -103,7 +88,7 @@ if __name__ == "__main__":
     })
 
     if n_test > 0:
-        indices = np.random.choice(len(ds['test']), size=n_test, replace=True)
+        indices = np.arange(n_test)
         ds['test'] = ds['test'].shuffle(seed=42).select(indices)
 
     test_loader = DataLoader(ds['test'], batch_size=batch_size)
@@ -111,16 +96,10 @@ if __name__ == "__main__":
     if v_end == -1:
         v_end = llama.config.num_hidden_layers
 
-    token_ids = tokenizer(ds['test']['base'][:100], 
-                        padding=True, 
-                        return_tensors="pt").input_ids
-    max_seq_len = token_ids.shape[1]
     extra_steps = num_extra_steps * h_step
-
     layers = list(range(v_start, v_end+1, v_step))
     positions = list(range(h_start-extra_steps, h_end+1, h_step))
 
-    train_end = True # whether to train tokens near the end
     if train_end:
         positions += list(range(-1-extra_steps, 0, h_step))
 
@@ -192,7 +171,6 @@ if __name__ == "__main__":
                     _, counterfactual_outputs = vene(
                         base_tokens,
                         [source_tokens],
-                        # {"sources->base": position},
                         unit_locations={"sources->base": (src_pos, base_pos)},
                     )
 

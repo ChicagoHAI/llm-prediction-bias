@@ -259,7 +259,6 @@ def format_prompt(template, candidate,
                                  'admissions_short', 
                                  'admissions_names'
                                  'hiring_short', 
-                                #  'hire_dec_eval', 
                                  'hiring_names'] = 'admissions_short'):
     if dataset == 'admissions_full':
         prompt = template.format(
@@ -293,13 +292,6 @@ def format_prompt(template, candidate,
             num_letters = candidate['num_letters'],
             university = candidate['uni'],
         )
-    # elif dataset == 'hiring_short':
-    #     prompt = template.format(
-    #         race = candidate['race'],
-    #         exp = candidate['experience'],
-    #         degree = candidate['degree'],
-    #         coding = candidate['coding']
-    #     )
     elif dataset == 'hiring_short':
         prompt = template.format(
             role = candidate['role'],
@@ -467,23 +459,10 @@ def load_alignment(save_path, config, model,
         intervention_params.load_state_dict(
             torch.load(model_params_path, weights_only=True)
         )
-
-        # if src_save_path != None:
-        #     src_params_path = os.path.join(src_save_path, "model_params.pt")
-        #     src_intervention_params = alignment_type(
-        #         embed_dim=model.config.hidden_size
-        #     )
-        #     src_intervention_params.load_state_dict(
-        #         torch.load(src_params_path, weights_only=True)
-        #     )
-        #     src_rotate = src_intervention_params.rotate_layer
-        #     intervention_params.set_src_rotate_layer(src_rotate)
-
         keys = list(intervenable.representations.keys())
         for key in keys:
             hook = intervenable.interventions[key][1]
             intervenable.interventions[key] = (intervention_params, hook)
-    # else:
 
     # manually setting a subspace dimensionality
     if interchange_dim != None:

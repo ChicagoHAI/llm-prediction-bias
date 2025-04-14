@@ -1,6 +1,6 @@
 Given their mix of qualifications, should a college admissions officer admit this applicant to {university}? Here is their profile:
 - Name: {name}
-- GPA: {gpa:.2f} / 4.0
+- GPA: {gpa:.1f} / 4.0
 - Number of impactful on-campus clubs: {num_ecs}
 - Number of strong recommendation letters: {num_letters}
 
