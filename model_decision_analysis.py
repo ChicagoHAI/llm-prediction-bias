@@ -1,3 +1,11 @@
+# Standard library
+import os
+import random
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Third-party libraries
+import numpy as np
 import pandas as pd
 import numpy as np
 from datasets import Dataset, load_dataset
@@ -8,14 +16,14 @@ import os
 import argparse
 from matplotlib import pyplot as plt
 from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
+from openai import OpenAI
 
-import sys
-sys.path.append('../pyvene/')
-import pyvene as pv # using local pyvene
-
-from utils import ADMISSIONS_SETTINGS, HIRING_NAMES_SETTINGS, HIRING_SETTINGS, HIRING_SETTINGS_SHORT, ADMISSIONS_NAMES_SETTINGS, \
-llm_predict, format_prompt, sample_one
-
+# Local application imports
+from utils import (
+    ADMISSIONS_SETTINGS, HIRING_NAMES_SETTINGS,
+    HIRING_SETTINGS, ADMISSIONS_NAMES_SETTINGS,
+    llm_predict, format_prompt, sample_one
+)
 
 import random
 import numpy as np
@@ -79,19 +87,71 @@ os.makedirs(preds_save_path, exist_ok=True)
 os.makedirs(probs_save_path, exist_ok=True)
 os.makedirs(plots_save_path, exist_ok=True)
 
-config = AutoConfig.from_pretrained(model_name)
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-tokenizer.padding_side = 'left'
-tokenizer.pad_token = tokenizer.eos_token
+# Check if using OpenAI model
+is_openai_model = model_name.startswith('gpt-')
 
-llama = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    config=config,
-    torch_dtype=torch.bfloat16,  # save memory
-    # device_map='auto'
-)
-_ = llama.to(device)
-_ = llama.eval()
+if is_openai_model:
+    # Initialize OpenAI client
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    def openai_predict_single(args):
+        """Make a single prediction using OpenAI API"""
+        client, model_name, prompt, idx = args
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=10,
+                temperature=0
+            )
+            pred = response.choices[0].message.content.strip()
+            return idx, pred
+        except Exception as e:
+            print(f"Error with OpenAI API: {e}")
+            return idx, "Error"
+    
+    def openai_predict(client, model_name, prompts, max_workers=10):
+        """Make predictions using OpenAI API with concurrent requests"""
+        predictions = [""] * len(prompts)
+        
+        # Prepare arguments for each API call
+        args_list = [(client, model_name, prompt, idx) 
+                     for idx, prompt in enumerate(prompts)]
+        
+        # Use ThreadPoolExecutor for concurrent API calls
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_idx = {
+                executor.submit(openai_predict_single, args): args[3] 
+                for args in args_list
+            }
+            
+            # Collect results with progress bar
+            for future in tqdm(
+                as_completed(future_to_idx), 
+                total=len(prompts), 
+                desc="OpenAI API calls"
+            ):
+                idx, pred = future.result()
+                predictions[idx] = pred
+        
+        return predictions
+else:
+    # Original Hugging Face model loading
+    config = AutoConfig.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.padding_side = 'left'
+    tokenizer.pad_token = tokenizer.eos_token
+
+    llama = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        config=config,
+        torch_dtype=torch.bfloat16,
+    )
+    _ = llama.to(device)
+    _ = llama.eval()
 
 if task == 'DiscrimEval':
     dataset = load_dataset('Anthropic/discrim-eval', 'explicit')
@@ -165,18 +225,22 @@ test_dataloader = DataLoader(test_data, batch_size=bs)
 
 preds = []
 with torch.no_grad():
-    for batch in tqdm(test_dataloader, desc="Making decisions"):
-        output_labels = llm_predict(llama, 
-                                    tokenizer, 
-                                    device,
-                                    batch['input_text'], 
-                                    generate=False, gen_length=3
-                                   )
-        preds += output_labels
+    if is_openai_model:
+        # Use OpenAI API for predictions
+        all_prompts = df_data['profile'].tolist()
+        preds = openai_predict(client, model_name, all_prompts)
+    else:
+        # Use existing Hugging Face model predictions
+        for batch in tqdm(test_dataloader, desc="Making decisions"):
+            output_labels = llm_predict(llama, 
+                                        tokenizer, 
+                                        # device,
+                                        batch['input_text'], 
+                                        generate=False, gen_length=3
+                                       )
+            preds += output_labels
 
-        # breakpoint()
-
-        print(output_labels)
+            print(output_labels) # for debugging purposes
 
 preds = ["Yes" if "Yes" in pred else "No" for pred in preds]
 _preds = []

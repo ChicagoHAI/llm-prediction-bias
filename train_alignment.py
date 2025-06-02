@@ -1,5 +1,9 @@
 import argparse
 import os
+import sys
+
+# Add local pyvene to path
+sys.path.append('../pyvene')
 from tqdm import tqdm
 
 import numpy as np
@@ -8,17 +12,18 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from datasets import load_dataset
-from transformers import get_linear_schedule_with_warmup, \
-LlamaForCausalLM, LlamaTokenizer, LlamaConfig, \
-get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup, \
-AutoConfig, AutoTokenizer, AutoModelForCausalLM
-from huggingface_hub import login
+from sklearn.metrics import accuracy_score
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    get_linear_schedule_with_warmup,
+)
+import pyvene as pv
+import pandas as pd
 
-import sys
-sys.path.append('../pyvene/')
-import pyvene as pv # using local pyvene
-
-from utils import save_alignment
+# Local libraries
+from utils import save_alignment, load_alignment
 
 """
 Calculate cross entropy between logits and 
@@ -39,7 +44,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, 
                         default='sharpbai/alpaca-7b-merged', 
                         help='Name or path of the model')
-    parser.add_argument("--intervention_type", choices=["bdas", "das"], default="bdas")
+    parser.add_argument("--intervention_type", choices=["bdas", "das", "fix-rep"], default="bdas")
     parser.add_argument("--interchange_dim", type=int)
 
     # Training args
@@ -198,6 +203,67 @@ if __name__ == "__main__":
                 intervenable = pv.IntervenableModel(config, llama)
                 intervenable.set_device(device)
                 intervenable.disable_model_gradients()
+            elif vene_type == "fix-rep": 
+                # only for gemma right now
+                fix_representation = torch.load(f"./datasets/gemma-2b-it_layer_10_token_-1_avg_representation.pt").to(device)
+
+                # fix_representation = torch.zeros(llama.config.hidden_size).to(device)
+                
+                # Create two separate models for the chained intervention
+                # Model 1: source_0 (zero vector) -> source_1 and collect
+                fix_layer = 10
+                collect_config = pv.IntervenableConfig([
+                    {
+                        "layer": fix_layer,
+                        "component": 'block_output',
+                        "intervention_type": pv.RotatedSpaceIntervention,
+                    }
+                ])
+
+                align_path = f"/data/dangnguyen/causal_explanations/llm_prediction_bias/alignments/admissions-race-prompting_name_autoctf_das-500_n-train-2000_all-pos/gemma-2b-it/layer_10_token_-1"
+                collect_model = load_alignment(align_path, collect_config, llama,
+                              alignment_type=pv.RotatedSpaceIntervention, 
+                              interchange_dim=interchange_dim)
+
+                collect_model.set_device(device)
+                collect_model.disable_model_gradients()
+                
+                # Model 2: Use collected activations -> base
+                apply_config = pv.IntervenableConfig([
+                    {
+                    "layer": fix_layer,
+                    "component": 'block_output',
+                    "intervention_type": pv.RotatedSpaceIntervention,
+                    },
+                    {
+                    "layer": layer,
+                    "component": 'block_output',
+                    "intervention_type": pv.RotatedSpaceIntervention,
+                    },
+                ]
+                )
+                apply_model = pv.IntervenableModel(apply_config, llama)
+
+                model_params_path = os.path.join(align_path, "model_params.pt")
+                intervention_params = pv.RotatedSpaceIntervention(
+                    embed_dim=llama.config.hidden_size
+                )
+                intervention_params.load_state_dict(
+                    torch.load(model_params_path, weights_only=True)
+                )
+                apply_keys = list(apply_model.representations.keys())
+                for i, key in enumerate(apply_keys):
+                    if i == 0:
+                        hook = apply_model.interventions[key][1]
+                        apply_model.interventions[key] = (intervention_params, hook)
+                
+                # Set interchange dimensions for rotated space interventions
+                apply_key = list(apply_model.interventions.keys())[0]
+                apply_model.interventions[apply_key][0].interchange_dim = torch.tensor(interchange_dim)
+                
+                apply_model.set_device(device) 
+                apply_model.disable_model_gradients()
+
             else:
                 config = pv.IntervenableConfig([
                     {
@@ -216,18 +282,30 @@ if __name__ == "__main__":
             # set up optimizer
             total_steps = num_epochs * len(ds['train'])
             optimizer_params = []
-            for k, v in intervenable.interventions.items():
-                try:
-                    optimizer_params.append({
-                        "params": v[0].rotate_layer.parameters()
-                    })
-                    optimizer_params.append({
-                        'params': v[0].intervention_boundaries, 'lr': 1e-3
-                        # 'params': v[0].intervention_boundaries, 'lr': 5e-3
-                    })
-                except:
-                    pass
-            # optimizer = torch.optim.Adam(optimizer_params, lr=5e-5)
+            
+            if vene_type == "fix-rep":
+                for i, (key, value) in enumerate(apply_model.interventions.items()):
+                    if i > 0: # only optimize models beyond the first one
+                        optimizer_params.append({
+                            "params": value[0].rotate_layer.parameters()
+                        })
+                        # optimizer_params.append({
+                        #     'params': v[0].intervention_boundaries, 'lr': 1e-3
+                        # })
+            else:
+                # For other types, single model
+                for k, v in intervenable.interventions.items():
+                    try:
+                        optimizer_params.append({
+                            "params": v[0].rotate_layer.parameters()
+                        })
+                        optimizer_params.append({
+                            'params': v[0].intervention_boundaries, 'lr': 1e-3
+                            # 'params': v[0].intervention_boundaries, 'lr': 5e-3
+                        })
+                    except:
+                        pass
+                        
             optimizer = torch.optim.Adam(optimizer_params, lr=1e-4)
             # optimizer = torch.optim.Adam(optimizer_params, lr=2e-4)
 
@@ -277,19 +355,49 @@ if __name__ == "__main__":
                     print(tokenizer.batch_decode(base[:10, base_pos]))
                     print(tokenizer.batch_decode(src[:10, src_pos]))
 
-                    _, counterfactual_outputs = intervenable(
-                        base_tokens,
-                        [source_tokens],
-                        # {"sources->base": position},
-                        unit_locations={"sources->base": (src_pos, base_pos)},
-                    )
+                    if vene_type == "fix-rep":
+                        src_bs = src.shape[0]
+                        fix_rep = fix_representation.expand(src_bs, 1, -1)
+
+                        base_outputs, collect_outputs = collect_model(
+                            source_tokens,
+                            source_representations=fix_rep,
+                            unit_locations={"sources->base": src_pos},
+                            output_original_output=True,
+                            output_hidden_states=True
+                        )
+
+                        collect_reps = collect_outputs.hidden_states[layer+1][:, -1:, :]
+
+                        _, counterfactual_outputs = apply_model(
+                            base_tokens,
+                            source_representations={
+                                apply_keys[0]: fix_rep,
+                                apply_keys[1]: collect_reps,
+                            },
+                            unit_locations={
+                                "sources->base": [base_pos, base_pos]
+                            },
+                        )
+                        # breakpoint()
+
+                    else:
+                        _, counterfactual_outputs = intervenable(
+                            base_tokens,
+                            [source_tokens],
+                            unit_locations={
+                                "sources->base": (src_pos, base_pos)
+                            },
+                        )
 
                     logits = counterfactual_outputs.logits[:, -1]
-                    loss = calculate_loss(logits, example['src_label'].to(device))
-                    epoch_iterator.set_postfix({"loss": f"{loss.item():.3f}"})
-
-                    # breakpoint()
                     
+                    if vene_type == "fix-rep":
+                        loss = calculate_loss(apply_model, logits, example['src_label'].to(device))
+                    else:
+                        loss = calculate_loss(intervenable, logits, example['src_label'].to(device))
+
+                    epoch_iterator.set_postfix({"loss": f"{loss.item():.3f}"})                    
                     writer.add_scalar('training loss', loss, curr_step)
 
                     loss.backward()
@@ -321,12 +429,38 @@ if __name__ == "__main__":
                         else:
                             base_pos = src_pos = position
                     
-                        _, counterfactual_outputs = intervenable(
-                            base_tokens,
-                            [source_tokens],
-                            # {"sources->base": position},
-                            unit_locations={"sources->base": (src_pos, base_pos)},
-                        )
+                        if vene_type == "fix-rep":
+                            src_bs = src.shape[0]
+                            fix_rep = fix_representation.expand(src_bs, 1, -1)
+
+                            base_outputs, collect_outputs = collect_model(
+                                source_tokens,
+                                source_representations=fix_rep,
+                                unit_locations={"sources->base": src_pos},
+                                output_original_output=True,
+                                output_hidden_states=True
+                            )
+
+                            collect_reps = collect_outputs.hidden_states[layer+1][:, -1:, :]
+
+                            _, counterfactual_outputs = apply_model(
+                                base_tokens,
+                                source_representations={
+                                    apply_keys[0]: fix_rep,
+                                    apply_keys[1]: collect_reps,
+                                },
+                                unit_locations={
+                                    "sources->base": [base_pos, base_pos]
+                                },
+                            )
+                        else:
+                            _, counterfactual_outputs = intervenable(
+                                base_tokens,
+                                [source_tokens],
+                                unit_locations={
+                                    "sources->base": (src_pos, base_pos)
+                                },
+                            )
 
                         logits = counterfactual_outputs.logits[:, -1]
                         preds = logits.argmax(dim=-1).detach().cpu().numpy()
@@ -340,6 +474,21 @@ if __name__ == "__main__":
 
                     writer.add_scalar('dev accuracy', acc, epoch)
                     print(acc)
+
+            # Save dev predictions
+            predictions_df = pd.DataFrame({
+                'true_label': all_labels,
+                'predicted_label': all_preds,
+                'correct': all_preds == all_labels
+            })
+            
+            os.makedirs(args.results_save_path, exist_ok=True)
+            predictions_path = os.path.join(
+                args.results_save_path, 
+                args.save_name + "_preds.csv"
+            )
+            predictions_df.to_csv(predictions_path, index=False)
+            print(f"Saved predictions to: {predictions_path}")
 
             # saving the alignment
             if save_alignments:
