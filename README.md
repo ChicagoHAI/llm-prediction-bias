@@ -1,19 +1,19 @@
 # On the Effectiveness and Generalization of Race Representations for Debiasing High-Stakes Decisions
 
 ## Overview
-<!-- This project focuses on analyzing and mitigating prediction biases in large language models (LLMs). It includes tools for loading, saving, and intervening in model predictions, as well as utilities for alignment and bias evaluation. -->
-This project features the code for the experiments used in our paper, On the Effectiveness and Generalization of Race Representations for Debiasing High-Stakes Decisions, which uncovers the mechanism behind LLMs' racial biases and performs interventions to mitigate them. Check out the full paper [here](https://arxiv.org/abs/2504.06303)!
+This repo features the code used for the experiments in our paper, On the Effectiveness and Generalization of Race Representations for Debiasing High-Stakes Decisions, which uncovers mechanisms behind LLMs' racial biases and performs interventions to mitigate them. Check out the full paper [here](https://arxiv.org/abs/2504.06303)!
 
 ## Relevant files and folders in this codebase
 ```
 llm_prediction_bias/
 ├── model_decision_analysis.py # Script for analyzing model decisions
-├── make_controlled_data.py  # Script for creating controlled datasets to measure models' biases
-├── auto_ctf.py              # Script for automated counterfactual dataset generation
-├── train_alignment.py       # Script for training alignments
+├── make_controlled_data.py    # Script for creating controlled datasets to measure models' biases
+├── auto_ctf.py                # Script for automated counterfactual dataset generation
+├── train_alignment.py         # Script for training alignments
 ├── cross_task_intervention.py # Script for cross-task interventions
-├── plot_iia.py              # Script for plotting the interchange intervention accuracy (IIA) heatmap after training
-├── prompts/                 # Directory for prompt templates
+├── evaluate_debiasing.py      # Script for evaluating debiasing methods
+├── plot_iia.py                # Script for plotting the interchange intervention accuracy (IIA) heatmap after training
+├── prompts/                   # Directory for prompt templates
 ```
 
 ## Installation
@@ -40,10 +40,10 @@ python model_decision_analysis.py \
     --batch_size 128 \
     --task AdmissionsNames \
     --model_name meta-llama/Llama-3.2-3B-Instruct \
-    --template_path ./prompts/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct/admissions_race_name.txt \
-    --preds_save_path ./datasets/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct \
-    --probs_save_path ./results/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct \
-    --plots_save_path ./plots/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct
+    --template_path ./path/to/template.txt \
+    --preds_save_path ./path/to/dataset \
+    --probs_save_path ./path/to/results_probs \
+    --plots_save_path ./path/to/plots
 ```
 
 ### `auto_ctf.py`
@@ -52,13 +52,13 @@ This script generates counterfactual datasets automatically using the base and s
 Example:
 ```bash
 python auto_ctf.py \
-    --source_path ./datasets/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct/name/preds.csv \
-    --base_path ./datasets/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct/name/preds.csv \
+    --source_path ./path/to/source/preds.csv \
+    --base_path ./path/to/base/preds.csv \
     --model_name llama3 \
     --causal_variable name \
     --side_variables uni gpa num_letters num_ecs \
     --train_dev_split 0.6 0.2 \
-    --save_path ./datasets/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct
+    --save_path ./path/to/autoctf_dataset
 ```
 
 ### `train_alignment.py`
@@ -69,7 +69,7 @@ With the counterfactual dataset in hand, we can now train alignments. We get to 
 Example:
 ```bash
 python train_alignment.py \
-    --dataset_path ./datasets/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct \
+    --dataset_path ./path/to/autoctf_dataset \
     --model_name meta-llama/Meta-Llama-3.2-3B-Instruct \
     --intervention_type das \
     --interchange_dim 1000 \
@@ -85,8 +85,8 @@ python train_alignment.py \
     --vertical_start 10 \
     --vertical_end 11 \
     --vertical_step 1 \
-    --models_save_path ./alignments/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct \
-    --results_save_path ./results/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct \
+    --models_save_path ./path/to/alignments \
+    --results_save_path ./path/to/results \
     --save_alignments
 ```
 
@@ -98,8 +98,8 @@ Example:
 python cross_task_intervention.py \
     --n_test -1 \
     --model_name meta-llama/Meta-Llama-3.2-3B-Instruct \
-    --dataset_path ./datasets/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct \
-    --save_path ./results/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct/das-500-name_collect_10.-1_patch_10.-1 \
+    --dataset_path ./path/to/autoctf_dataset \
+    --save_path ./path/to/intervention_results \
     --intervention interchange \
     --interchange_dim 500 \
     --method das \
@@ -121,23 +121,39 @@ python make_controlled_data.py \
     --n_samples 400 \
     --src_task AdmissionsNames \
     --base_task AdmissionsNames \
-    --src_template_path ./prompts/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct/admissions_race_name.txt \
-    --base_template_path ./prompts/admissions-race-prompting/Meta-Llama-3.2-3B-Instruct/admissions_race_name.txt \
-    --save_path ./datasets/admissions-name_credentials-controlled/Meta-Llama-3.2-3B-Instruct
+    --src_template_path ./path/to/template.txt \
+    --base_template_path ./path/to/template.txt \
+    --save_path ./path/to/controlled_dataset
 ```
 
-### `evaluate_debiasing.py`
+To run debiasing, we once again rely on `cross_task_intervention.py`. Just set `--intervention` to one of the valid debiasing methods, 'zero-ablate', 'var-avg', or 'prompting'. 'zero-ablate' refers to the race projection intervention discussed in the paper, while 'var-avg' refers to the averaging intervention. They can be used with a `pv.RotatedSpaceIntervention` or a `pv.BoundlessRotatedSpaceIntervention`. 'prompting' refers to debiasing via prompt engineering
 
+
+### `evaluate_debiasing.py`
+This script evaluates the effectiveness of different debiasing methods by computing bias scores, outcome changes, and acceptance rates. It compares the original model's performance against various debiasing interventions including race averaging, zero ablation, and prompt engineering methods. Here's an example of how to run it:
+
+```bash
+python evaluate_debiasing.py \
+    --model_name path/to/model \
+    --task admissions \
+    --base_csv ./path/to/base_preds.csv \
+    --ctf_csvs ./path/to/var_avg_preds.csv \
+              ./path/to/zero_ablate_preds.csv \
+              ./path/to/prompting_preds.csv \
+    --output_csv ./path/to/evaluation_results.csv \
+    --n_profiles 100 \
+    --n_runs 10
+```
 
 ### `plot_iia.py`
-This script generates IIA (Independence of Irrelevant Alternatives) plots.
+This script generates IIA (Interchange Intervention Accuracy) plots.
 
 Example:
 ```bash
 python plot_iia.py \
-    --model_name /data/transformers/Meta-Llama-3.2-3B-Instruct \
-    --results_path ./results/admissions-race-prompting_name_autoctf_das-500_n-train-2000_all-pos/Meta-Llama-3.2-3B-Instruct/test \
-    --dataset_path ./datasets/admissions-race-prompting_name_autoctf/Meta-Llama-3.2-3B-Instruct \
+    --model_name path/to/model \
+    --results_path ./path/to/results \
+    --dataset_path ./path/to/dataset \
     --horizontal_start -92 \
     --horizontal_end -85 \
     --horizontal_step 1 \
@@ -145,7 +161,7 @@ python plot_iia.py \
     --vertical_start 0 \
     --vertical_end 17 \
     --vertical_step 2 \
-    --save_file ../plots/overleaf_plots/admissions-names_Meta-Llama-3.2-3B-Instruct_all-unis_test_iia
+    --save_file ./path/to/output_plot
 ```
 
 ## Contact
