@@ -36,7 +36,7 @@ This script generates the Admissions and Hiring datasets and collects the model'
 Here's an example of how you can use it. Feel free to change the directory names to suit your use case.
 ```bash
 python model_decision_analysis.py \
-    --dataset_size 5000 \
+    --dataset_size 10000 \
     --batch_size 128 \
     --task AdmissionsNames \
     --model_name meta-llama/Llama-3.2-3B-Instruct \
