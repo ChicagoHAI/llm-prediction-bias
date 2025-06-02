@@ -26,7 +26,6 @@ from utils import load_alignment
 from vllm import LLM, SamplingParams
 
 # Add OpenAI import for classification
-import openai
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -109,95 +108,6 @@ def classify_predictions_batch(predictions, batch_size=10):
         time.sleep(0.1)
     
     return classified_preds
-
-# Add vLLM import
-from vllm import LLM, SamplingParams
-
-# Add OpenAI import for classification
-import openai
-from openai import OpenAI
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-def classify_decision(text, client, max_retries=3):
-    """
-    Classify text output into 'Yes' or 'No' using GPT-4o-mini.
-    
-    Args:
-        text (str): The text to classify
-        client: OpenAI client instance
-        max_retries (int): Maximum number of retries for API calls
-    
-    Returns:
-        str: 'Yes' or 'No'
-    """
-    prompt = f"""Please classify the following text as either "Yes" or "No" based on the decision or conclusion it expresses.
-
-Text to classify: "{text}"
-
-Respond with only "Yes" or "No" (without quotes)."""
-
-    for attempt in range(max_retries):
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that classifies text as Yes or No."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=10,
-                temperature=0
-            )
-            
-            result = response.choices[0].message.content.strip()
-            
-            # Ensure we get a valid Yes/No response
-            if result.lower() in ['yes', 'no']:
-                return result.capitalize()
-            elif 'yes' in result.lower():
-                return 'Yes'
-            elif 'no' in result.lower():
-                return 'No'
-            else:
-                if attempt == max_retries - 1:
-                    return 'None'
-                continue
-                
-        except Exception as e:
-            print(f"Error in classification (attempt {attempt + 1}): {e}")
-            if attempt == max_retries - 1:
-                return 'None'
-    
-    return 'None'
-
-
-def classify_predictions_batch(predictions, batch_size=10):
-    """
-    Classify a list of predictions using GPT-4o-mini in batches.
-    
-    Args:
-        predictions (list): List of text predictions to classify
-        batch_size (int): Number of predictions to process at once
-    
-    Returns:
-        list: List of 'Yes'/'No' classifications
-    """
-    classified_preds = []
-    
-    print("Classifying predictions with GPT-4o-mini...")
-    for i in tqdm(range(0, len(predictions), batch_size), 
-                  desc="Classifying"):
-        batch = predictions[i:i + batch_size]
-        
-        for pred in batch:
-            classified = classify_decision(pred, client)
-            classified_preds.append(classified)
-        
-        # Small delay to respect rate limits
-        time.sleep(0.1)
-    
-    return classified_preds
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
