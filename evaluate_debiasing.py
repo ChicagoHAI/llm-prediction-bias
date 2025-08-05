@@ -70,6 +70,7 @@ def main():
     parser.add_argument('--output_csv', required=True, help='Path to save the output CSV file.')
     parser.add_argument('--n_profiles', type=int, default=100, help='Number of profiles to sample for bias computation.')
     parser.add_argument('--n_runs', type=int, default=10, help='Number of runs for bias computation.')
+    parser.add_argument('--method_labels', nargs='+', required=True, help='Labels for each method (base + counterfactual methods).')
 
     args = parser.parse_args()
 
@@ -93,15 +94,7 @@ def main():
     outcome_diffs = []
     race_acc_rates = []
 
-    method_labels = [
-        'Original',
-        'Race Averaging Layer',
-        'Zero Ablation Layer',
-        # 'Race Averaging Full Layer',
-        # 'Zero Ablation Random Layer',
-        'Prompting Fairness Fewshot',
-        'Prompting Fairness CoT'
-    ]
+    method_labels = args.method_labels
 
     base_rate, outcome_diff = compute_outcome_delta(df_base, df_base)
     base_rates.append(base_rate)

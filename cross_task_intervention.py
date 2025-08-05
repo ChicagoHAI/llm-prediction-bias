@@ -3,6 +3,7 @@ import random
 import argparse
 from tqdm import tqdm
 import time
+import re
 
 import torch
 import numpy as np
@@ -140,8 +141,9 @@ def parse_args():
                         choices=["bdas", "das", "full", 
                                  "probing", "random"
                                  ], default="bdas")
-    parser.add_argument('--intervention', choices=['interchange', 'neuron-avg', 'zero-ablate', 'noising', 'var-avg', 'fix-race', 'prompting'], default='interchange')
+    parser.add_argument('--intervention', choices=['interchange', 'neuron-avg', 'zero-ablate', 'noising', 'var-avg', 'fix-race', 'prompting', 'name-removed-prompting'], default='interchange')
     parser.add_argument('--prompt', type=str, default="")
+    parser.add_argument('--prompt_number', type=int, default=7)
 
     parser.add_argument('--collect_layer', type=int, default=2, 
                         help='Layer to collect activations from. This option only applies to DAS.')
@@ -183,6 +185,7 @@ collect_layer = args.collect_layer
 collect_token = args.collect_token
 use_right_padding = args.use_right_padding # for when race position is varied
 debias_prompt = args.prompt
+prompt_number = args.prompt_number
 
 patch_layers = range(args.patch_start, args.patch_end+1)
 patch_tokens = args.patch_tokens
@@ -678,6 +681,48 @@ with torch.no_grad():
             patches_ = []
             # breakpoint()
 
+        elif intervention == 'name-removed-prompting':
+            # Function to extract name from prompt and replace with "this applicant"
+            def remove_name_from_prompt(prompt):
+                # First, check for list format pattern and remove the entire line
+                list_pattern = r'-\s*Name:\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*\n'
+                if re.search(list_pattern, prompt):
+                    # Remove the entire "- Name: [NAME]" line
+                    modified_prompt = re.sub(list_pattern, '', prompt)
+                    return modified_prompt
+                
+                # Then check for inline patterns and replace name with "this applicant"
+                inline_patterns = [
+                    # Admissions pattern: "should a college admissions officer admit [NAME] to"
+                    r'admit\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+to',
+                    # Hiring pattern: "extend an offer to [NAME] for a"
+                    r'extend\s+an\s+offer\s+to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+for\s+a',
+                ]
+                
+                for pattern in inline_patterns:
+                    match = re.search(pattern, prompt)
+                    if match:
+                        name = match.group(1)
+                        # Replace the name with "this applicant"
+                        modified_prompt = prompt.replace(name, "this applicant")
+                        return modified_prompt
+                
+                # If no pattern matches, print for debugging
+                print(f"No name found in prompt: {prompt[:100]}...")
+                return prompt
+            
+            # Apply name removal to all prompts in the batch
+            name_removed_base = [remove_name_from_prompt(prompt) 
+                                for prompt in batch['base']]
+            
+            base_tokens = tokenizer(name_removed_base, 
+                                return_tensors='pt', 
+                                padding=True).to(device)
+            
+            src_tokens = None
+            src_activations = None
+            patches_ = []
+
         if not generate:
             base_outputs, ctf_outputs = vene(
                 base_tokens,
@@ -710,19 +755,36 @@ with torch.no_grad():
                 base_preds = [output.outputs[0].text.strip() 
                                 for output in outputs]
                 ctf_preds = base_preds.copy()  # Same for both in prompting
+            elif intervention == 'name-removed-prompting':
+                prompts_for_generation = name_removed_base
+                
+                sampling_params = SamplingParams(
+                    temperature=0.0,
+                    max_tokens=200,
+                    # stop=["\n\n", "Reasoning:", "</s>", "<|endoftext|>"]
+                )
+                
+                outputs = vllm_model.generate(
+                    prompts_for_generation, 
+                    sampling_params
+                )
+                
+                base_preds = [output.outputs[0].text.strip() 
+                                for output in outputs]
+                ctf_preds = base_preds.copy()  # Same for both in name-removed-prompting
             else:
                 base_outputs, ctf_outputs = vene.generate(
                     base_tokens,
                     src_tokens,
                     source_representations = src_activations,
-                    max_length = base_seq_len + 100,
+                    max_length = seq_len + 100,
                     output_original_output = True,
                     intervene_on_prompt = True,
                     unit_locations = {"base": patches_},
                 )
 
-                base_outputs = base_outputs[:, base_seq_len:]
-                ctf_outputs = ctf_outputs[:, base_seq_len:]
+                base_outputs = base_outputs[:, seq_len:]
+                ctf_outputs = ctf_outputs[:, seq_len:]
 
                 base_preds = tokenizer.batch_decode(base_outputs, skip_special_tokens=True)
                 ctf_preds = tokenizer.batch_decode(ctf_outputs, skip_special_tokens=True)
